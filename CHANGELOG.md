@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-11-04
+
+### Added
+
+- Closed shadow DOM support: a page-side `attachShadow` patch tracks closed
+  shadow roots, so `chrome_snapshot` can see (and `chrome_click` can click)
+  interactive elements inside them.
+- Cursor "thinking" animation: the halo now pulses while the virtual pointer
+  is idle, matching the living-cursor feel of the Codex extension.
+
+### Verified
+
+- E2E creates a closed shadow root with a button, finds it in a snapshot, and
+  clicks it successfully.
+
 ## [0.0.3] - 2026-11-04
 
 ### Changed

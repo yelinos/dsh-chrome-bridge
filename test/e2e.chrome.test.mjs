@@ -85,7 +85,7 @@ try {
 
   // 2. Command round-trip.
   const ping = await server.command("ext.ping");
-  report(ping.version === "0.0.3", "ext.ping reports the manifest version", JSON.stringify(ping));
+  report(ping.version === "0.0.4", "ext.ping reports the manifest version", JSON.stringify(ping));
 
   // 3. Open a tab in the DSH group and load the local page.
   const opened = await server.command("tabs.open", {
@@ -162,6 +162,32 @@ try {
     expression: "window.scrollY",
   });
   report(scrolled.value > 0, "page.scroll moves the page", String(scrolled.value));
+
+  // 4e. Closed shadow DOM: create one after the patch is installed, then
+  // snapshot and click through it.
+  await server.command("page.eval", {
+    tabId: opened.id,
+    expression: `(() => {
+      const host = document.createElement('div');
+      host.id = 'shadow-host';
+      const root = host.attachShadow({ mode: 'closed' });
+      root.innerHTML = '<button id="sb">Shadow Button</button>';
+      root.getElementById('sb').addEventListener('click', () => { document.body.dataset.shadow = 'yes'; });
+      document.body.appendChild(host);
+      return true;
+    })()`,
+  });
+  const shadowSnap = await server.command("page.snapshot", { tabId: opened.id });
+  const shadowButton = shadowSnap.elements.find((element) => (element.name || '').includes('Shadow Button'));
+  report(shadowButton !== undefined, "snapshot sees closed shadow DOM", JSON.stringify(shadowButton));
+  if (shadowButton !== undefined) {
+    await server.command("input.clickRef", { tabId: opened.id, ref: shadowButton.ref });
+    const shadowClicked = await server.command("page.eval", {
+      tabId: opened.id,
+      expression: "document.body.dataset.shadow",
+    });
+    report(shadowClicked.value === "yes", "click works inside a closed shadow root", JSON.stringify(shadowClicked));
+  }
 
   // 5. Evaluate JavaScript.
   const title = await server.command("page.eval", { tabId: opened.id, expression: "document.title" });

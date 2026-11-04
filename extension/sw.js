@@ -292,6 +292,9 @@ async function accessibilitySnapshot(tabId, maxElements) {
       ...(typeof value === "string" && value.length > 0 ? { value: value.slice(0, 80) } : {}),
     });
   }
+  await ensureShadowPatch(tabId);
+  const shadowElements = await closedShadowElements(tabId, index);
+  for (const element of shadowElements) elements.push(element);
   refMaps.set(tabId, map);
   return { ...identity, elements, truncated: index > maxElements };
 }
@@ -300,7 +303,21 @@ async function accessibilitySnapshot(tabId, maxElements) {
 async function refCenter(tabId, ref) {
   const map = refMaps.get(tabId);
   const backendNodeId = map?.get(ref);
-  if (backendNodeId === undefined) throw new Error(`unknown ref ${JSON.stringify(ref)}; take a fresh chrome_snapshot`);
+  if (backendNodeId === undefined) {
+    const result = await cdp(tabId, "Runtime.evaluate", {
+      expression: `(() => {
+        const el = window.__dshShadowRefs && window.__dshShadowRefs[${JSON.stringify(ref)}];
+        if (!el) return null;
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, tag: el.tagName };
+      })()`,
+      returnByValue: true,
+    });
+    const value = result.result?.value;
+    if (value && typeof value.x === "number") return value;
+    throw new Error(`unknown ref ${JSON.stringify(ref)}; take a fresh chrome_snapshot`);
+  }
   await cdp(tabId, "DOM.scrollIntoViewIfNeeded", { backendNodeId });
   try {
     const { quads } = await cdp(tabId, "DOM.getContentQuads", { backendNodeId });
@@ -339,12 +356,12 @@ async function showCursor(tabId, x, y, kind = "move") {
       el.dataset.browserAgentCursor = 'true';
       el.style.cssText = 'position:fixed;left:0;top:0;width:28px;height:28px;z-index:2147483647;pointer-events:none;will-change:transform;opacity:0;';
       el.innerHTML =
-        '<span class="dsh-halo" style="position:absolute;left:-7px;top:-7px;width:38px;height:38px;border-radius:50%;background:rgba(37,99,235,.16);border:1.5px solid rgba(37,99,235,.65);"></span>' +
+        '<span class="dsh-halo dsh-thinking" style="position:absolute;left:-7px;top:-7px;width:38px;height:38px;border-radius:50%;background:rgba(37,99,235,.16);border:1.5px solid rgba(37,99,235,.65);"></span>' +
         '<svg width="26" height="26" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 0 5px rgba(37,99,235,.9)) drop-shadow(0 1px 2px rgba(0,0,0,.5))">' +
         '<path d="M4 2 L4 19 L9 14 L12 21 L15 20 L12 13 L19 13 Z" fill="#ffffff" stroke="#111827" stroke-width="1.2"/></svg>' +
         '<span class="dsh-r" style="position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;background:rgba(59,130,246,.55);transform:scale(0);opacity:0;"></span>';
       const style = document.createElement('style');
-      style.textContent = '@keyframes dshRipple{0%{transform:scale(.2);opacity:.95}100%{transform:scale(2.6);opacity:0}}.dsh-r.dsh-run{animation:dshRipple .7s ease-out forwards}';
+      style.textContent = '@keyframes dshRipple{0%{transform:scale(.2);opacity:.95}100%{transform:scale(2.6);opacity:0}}@keyframes dshThink{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.18);opacity:.95}}.dsh-r.dsh-run{animation:dshRipple .7s ease-out forwards}.dsh-halo.dsh-thinking{animation:dshThink 1.6s ease-in-out infinite}';
       el.appendChild(style);
       document.documentElement.appendChild(el);
       const state = { x: window.innerWidth / 2, y: window.innerHeight / 2, vx: 0, vy: 0, tx: window.innerWidth / 2, ty: window.innerHeight / 2, visible: false };
@@ -415,6 +432,84 @@ async function scrollRef(tabId, ref) {
   const value = box.result?.value ?? await viewportCenter(tabId);
   await showCursor(tabId, value.x, value.y, "scroll");
   return value;
+}
+
+
+/** Install (once per tab) a patch that records closed shadow roots. */
+async function ensureShadowPatch(tabId) {
+  await cdp(tabId, "Page.enable").catch(() => {});
+  const expression = `(() => {
+    if (window.__dshShadowPatched) return true;
+    window.__dshShadowPatched = true;
+    window.__dshClosedRoots = [];
+    const original = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (init) {
+      const root = original.call(this, init);
+      if (init && init.mode === 'closed') {
+        try { this.__dshClosedRoot = root; window.__dshClosedRoots.push(this); } catch (e) {}
+      }
+      return root;
+    };
+    return true;
+  })()`;
+  await cdp(tabId, "Runtime.evaluate", { expression });
+}
+
+/** Interactive elements inside closed shadow roots, with page-side refs. */
+async function closedShadowElements(tabId, startIndex) {
+  const expression = `(() => {
+    const out = [];
+    window.__dshShadowRefs = window.__dshShadowRefs || {};
+    const SELECTOR = 'button,a[href],input,select,textarea,[role=button],[role=link],[role=textbox],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[tabindex]';
+    const roleOf = (el) => {
+      const explicit = el.getAttribute && el.getAttribute('role');
+      if (explicit) return explicit;
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'button') return 'button';
+      if (tag === 'a') return 'link';
+      if (tag === 'select') return 'combobox';
+      if (tag === 'textarea') return 'textbox';
+      if (tag === 'input') {
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        if (type === 'checkbox') return 'checkbox';
+        if (type === 'radio') return 'radio';
+        if (type === 'submit' || type === 'button') return 'button';
+        return 'textbox';
+      }
+      return 'generic';
+    };
+    const nameOf = (el) => {
+      const aria = el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'));
+      if (aria) return aria.trim();
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return (el.getAttribute('placeholder') || el.value || '').trim();
+      return (el.innerText || el.textContent || '').trim();
+    };
+    let index = ${startIndex};
+    const walk = (root) => {
+      let nodes;
+      try { nodes = root.querySelectorAll('*'); } catch (e) { return; }
+      for (const el of nodes) {
+        try {
+          if (el.matches(SELECTOR)) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              index += 1;
+              const ref = 'e' + index;
+              window.__dshShadowRefs[ref] = el;
+              out.push({ ref, role: roleOf(el), name: nameOf(el).slice(0, 80), shadow: true });
+            }
+          }
+          if (el.__dshClosedRoot) walk(el.__dshClosedRoot);
+        } catch (e) {}
+      }
+    };
+    for (const host of window.__dshClosedRoots || []) {
+      if (host.__dshClosedRoot) walk(host.__dshClosedRoot);
+    }
+    return out;
+  })()`;
+  const result = await cdp(tabId, "Runtime.evaluate", { expression, returnByValue: true });
+  return result.result?.value ?? [];
 }
 
 async function dispatch(cmd, params) {

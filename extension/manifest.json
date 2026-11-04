@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DSH Chrome Bridge",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Lets DeepSeek Harness agents operate your signed-in Chrome tabs — with your approval. Requires the dsh-chrome-bridge plugin in DSH.",
   "permissions": [
     "tabs",
