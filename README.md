@@ -2,6 +2,7 @@
 
 [English](README.en.md) | 中文
 
+[![CI](https://github.com/yelinos/dsh-chrome-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/yelinos/dsh-chrome-bridge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)](extension/manifest.json)
 [![DSH Plugin](https://img.shields.io/badge/DSH-dsh--plugin-0B5FFF)](https://github.com/topics/dsh-plugin)
