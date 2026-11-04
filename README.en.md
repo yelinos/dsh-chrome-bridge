@@ -28,6 +28,7 @@ for your approval the first time it touches a new domain.
 | Per-domain approval | First visit to a domain asks "allow this session / always allow / decline"; "always" persists through the DSH settings service |
 | Per-session tab groups | Each agent session gets its own `DSH · <session>` group, so concurrent sessions never collide |
 | Automatic tab recycling | Reuses the session's current tab by default; keeps at most `maxSessionTabs` tabs per session (LRU eviction), closes idle tabs and everything on session end |
+| Group colors and names | Each session gets a stable palette color; the group defaults to the first page's title and the agent can rename it to a short purpose with `chrome_group` |
 | Inline screenshots | PNG bytes are admitted through the attachment pipeline and returned as a model-visible image block; falls back to a workspace file |
 | Sidebar panel | Right sidebar "+" menu → Chrome Bridge: live status, install guide, domain lists |
 | Safety rails | `blockedDomains` always wins; only agent tab groups can be closed |
@@ -86,7 +87,7 @@ Ask the agent to call `chrome_status`; it should report:
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.3.0
+- extension: DSH Chrome Bridge 0.4.0
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
 
@@ -103,7 +104,8 @@ DSH Chrome Bridge connected:
 | `chrome_type` | Real keyboard input; optional selector focus and clear |
 | `chrome_key` | Press Enter/Tab/Escape/arrows/etc. with modifiers |
 | `chrome_screenshot` | Return a PNG as an inline attachment (file fallback) |
-| `chrome_close_tab` | Close a tab inside an agent DSH group only |
+| `chrome_group` | Name this session's tab group (≤24 chars) and change its color |
+| `chrome_close_tab` | Close a tab inside an agent group only |
 
 ## Configuration
 

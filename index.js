@@ -73,6 +73,8 @@ function apply(ctx, config) {
   const sessionTabs = new Map();
   /** session → last tabId this session used. */
   const lastTab = new Map();
+  /** session → explicit, short purpose name for its Chrome tab group. */
+  const groupNames = new Map();
 
   /** Live read of the volatile allowedDomains list (plain arrays also work). */
   function allowedDomains() {
@@ -149,6 +151,48 @@ function apply(ctx, config) {
   /** True for the plain group title and every per-session variant of it. */
   function inAgentGroup(groupTitle) {
     return groupTitle === config.tabGroupTitle || groupTitle.startsWith(`${config.tabGroupTitle} ·`);
+  }
+
+  /** True when the plugin opened or tracked this tab in any session. */
+  function isTrackedTab(tabId) {
+    for (const tabs of sessionTabs.values()) if (tabs.has(tabId)) return true;
+    return false;
+  }
+
+  /** Chrome tab-group colors, assigned deterministically per session. */
+  const GROUP_COLORS = ["blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange", "grey"];
+
+  function hashString(text) {
+    let hash = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = (hash * 31 + text.charCodeAt(index)) | 0;
+    }
+    return Math.abs(hash);
+  }
+
+  /** Stable tab-group color for one session, so concurrent groups differ. */
+  function sessionGroupColor(exec) {
+    const session = sessionOf(exec);
+    const id = session === null ? "" : String(session.id ?? "");
+    return GROUP_COLORS[hashString(id) % GROUP_COLORS.length];
+  }
+
+  /** Explicit purpose name the agent gave this session's group, if any. */
+  function sessionGroupName(exec) {
+    const session = sessionOf(exec);
+    if (session === null) return null;
+    return groupNames.get(session) ?? null;
+  }
+
+  /** Short default group name from a loaded page: its title, else its host. */
+  function autoGroupName(info) {
+    const title = String(info.title ?? "").trim();
+    if (title.length > 0) return title.slice(0, 24);
+    try {
+      return new URL(info.url).hostname.replace(/^www\./, "").slice(0, 24);
+    } catch {
+      return config.tabGroupTitle;
+    }
   }
 
   /** Record that the session touched `tabId` now, creating the record if needed. */
@@ -395,9 +439,16 @@ function apply(ctx, config) {
         const tabs = await bridge.command("tabs.list", {}, exec.signal);
         const session = sessionOf(exec);
         const owned = session === null ? undefined : sessionTabs.get(session);
-        const filtered = args.all === true ? tabs : tabs.filter((tab) => inAgentGroup(tab.groupTitle ?? ""));
+        const filtered =
+          args.all === true
+            ? tabs
+            : tabs.filter((tab) => inAgentGroup(tab.groupTitle ?? "") || isTrackedTab(tab.id));
         return {
-          tabs: filtered.map((tab) => ({ ...tab, session: owned?.has(tab.id) === true })),
+          tabs: filtered.map((tab) => ({
+            ...tab,
+            session: isTrackedTab(tab.id),
+            currentSession: owned?.has(tab.id) === true,
+          })),
           total: tabs.length,
         };
       },
@@ -456,7 +507,7 @@ function apply(ctx, config) {
             if (preferred !== undefined) {
               try {
                 const existing = await bridge.command("tabs.get", { tabId: preferred }, exec.signal);
-                if (inAgentGroup(existing.groupTitle ?? "")) {
+                if (inAgentGroup(existing.groupTitle ?? "") || isTrackedTab(existing.id)) {
                   info = await bridge.command("page.navigate", { tabId: preferred, url: args.url }, exec.signal);
                   reused = true;
                 }
@@ -466,11 +517,32 @@ function apply(ctx, config) {
             }
           }
           if (info === undefined) {
+            const explicitName = sessionGroupName(exec);
             info = await bridge.command(
               "tabs.open",
-              { url: args.url, active: args.background !== true, groupTitle: group },
+              {
+                url: args.url,
+                active: args.background !== true,
+                groupTitle: explicitName ?? config.tabGroupTitle,
+                groupColor: sessionGroupColor(exec),
+              },
               exec.signal
             );
+            if (explicitName === null) {
+              const autoName = autoGroupName(info);
+              if (autoName.length > 0 && autoName !== config.tabGroupTitle) {
+                try {
+                  const renamed = await bridge.command(
+                    "tabs.setGroup",
+                    { tabId: info.id, title: autoName },
+                    exec.signal
+                  );
+                  info = { ...info, groupTitle: renamed.title ?? autoName, groupColor: renamed.color ?? info.groupColor };
+                } catch {
+                  /* naming is best-effort */
+                }
+              }
+            }
           }
         }
         touchTab(exec, info.id);
@@ -480,10 +552,69 @@ function apply(ctx, config) {
           tabId: info.id,
           url: info.url,
           title: info.title,
-          group,
+          group: info.groupTitle ?? group,
+          groupColor: info.groupColor ?? sessionGroupColor(exec),
           closedTabs,
         };
       }
+    })
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "chrome_group",
+      description:
+        "Name this session's Chrome tab group with a short purpose label (at most 24 characters) and/or change its color, so the user can tell groups apart. The group defaults to the first page's title; call this when starting a task to make the purpose explicit.",
+      parameters: {
+        name: {
+          type: "string",
+          description: "Short purpose label, at most 24 characters (for example \"GitHub repo review\").",
+        },
+        color: {
+          type: "string",
+          description: "Tab group color: grey, blue, red, yellow, green, pink, purple, cyan, or orange.",
+        },
+      },
+      output: {
+        schema: looseObject,
+        render: (_args, value) => [
+          {
+            type: "text",
+            text: value.tabId === null
+              ? `Group name set to "${value.groupTitle}" (applies when the next tab opens).`
+              : `Group renamed to "${value.groupTitle}" (${value.groupColor ?? "unchanged color"}).`,
+          },
+        ],
+      },
+      async execute(args, exec) {
+        const session = sessionOf(exec);
+        if (session === null) throw new Error("chrome_group requires an agent Session");
+        const VALID_COLORS = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+        let name;
+        if (args.name !== undefined) {
+          name = args.name.trim();
+          if (name.length === 0) throw new Error("chrome_group needs a non-empty name");
+          if (name.length > 24) throw new Error("chrome_group name must be at most 24 characters");
+          groupNames.set(session, name);
+        }
+        if (args.color !== undefined && !VALID_COLORS.includes(args.color)) {
+          throw new Error(`invalid tab group color ${JSON.stringify(args.color)}`);
+        }
+        const tabId = lastTab.get(session);
+        if (tabId === undefined) {
+          return { tabId: null, groupTitle: name ?? sessionGroupName(exec) ?? config.tabGroupTitle, groupColor: args.color ?? sessionGroupColor(exec) };
+        }
+        const result = await bridge.command(
+          "tabs.setGroup",
+          {
+            tabId,
+            ...(name !== undefined ? { title: name } : {}),
+            ...(args.color !== undefined ? { color: args.color } : {}),
+          },
+          exec.signal
+        );
+        return { tabId, groupTitle: result.title ?? name ?? "", groupColor: result.color ?? args.color };
+      },
     })
   );
 
@@ -768,8 +899,8 @@ function apply(ctx, config) {
       },
       async execute(args, exec) {
         const info = await bridge.command("tabs.get", { tabId: args.tabId }, exec.signal);
-        if (!inAgentGroup(info.groupTitle ?? "")) {
-          throw new Error(`refusing to close tab ${args.tabId}: it is not in a ${config.tabGroupTitle} tab group`);
+        if (!inAgentGroup(info.groupTitle ?? "") && !isTrackedTab(args.tabId)) {
+          throw new Error(`refusing to close tab ${args.tabId}: it is not an agent tab`);
         }
         await bridge.command("tabs.close", { tabId: args.tabId }, exec.signal);
         for (const tabs of sessionTabs.values()) tabs.delete(args.tabId);

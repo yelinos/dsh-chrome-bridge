@@ -115,7 +115,7 @@ async function connect() {
   };
 }
 
-function tabInfo(tab, groupTitle) {
+function tabInfo(tab, group = {}) {
   return {
     id: tab.id,
     windowId: tab.windowId,
@@ -124,16 +124,23 @@ function tabInfo(tab, groupTitle) {
     url: tab.url ?? "",
     title: tab.title ?? "",
     groupId: tab.groupId ?? -1,
-    ...(groupTitle !== undefined ? { groupTitle } : {}),
+    ...(group.title !== undefined ? { groupTitle: group.title } : { groupTitle: "" }),
+    ...(group.color !== undefined ? { groupColor: group.color } : {}),
   };
 }
 
-async function groupTitles() {
+async function groupInfo() {
   const groups = await chrome.tabGroups.query({});
-  return new Map(groups.map((group) => [group.id, group.title]));
+  return new Map(groups.map((group) => [group.id, { title: group.title, color: group.color }]));
 }
 
-async function addToGroup(tab, title) {
+/** Resolve one tab's group display facts. */
+function groupOf(tab, groups) {
+  if (!tab.groupId || tab.groupId === -1) return {};
+  return groups.get(tab.groupId) ?? {};
+}
+
+async function addToGroup(tab, title, color) {
   try {
     const existing = (await chrome.tabGroups.query({ title })).filter(
       (group) => group.windowId === tab.windowId
@@ -144,7 +151,9 @@ async function addToGroup(tab, title) {
         ? { tabIds: [tab.id], createProperties: { windowId: tab.windowId } }
         : { tabIds: [tab.id], groupId: known }
     );
-    if (known === undefined) await chrome.tabGroups.update(groupId, { title, color: "blue" });
+    if (known === undefined) {
+      await chrome.tabGroups.update(groupId, { title, ...(color ? { color } : {}) });
+    }
   } catch {
     /* grouping is a convenience; never fail the command for it */
   }
@@ -244,35 +253,46 @@ async function dispatch(cmd, params) {
       return { version: chrome.runtime.getManifest().version, protocol: PROTOCOL_VERSION };
 
     case "tabs.list": {
-      const [tabs, titles] = await Promise.all([chrome.tabs.query({}), groupTitles()]);
-      return tabs.map((tab) =>
-        tabInfo(tab, tab.groupId && tab.groupId !== -1 ? titles.get(tab.groupId) ?? "" : "")
-      );
+      const [tabs, groups] = await Promise.all([chrome.tabs.query({}), groupInfo()]);
+      return tabs.map((tab) => tabInfo(tab, groupOf(tab, groups)));
     }
 
     case "tabs.get": {
-      const [tab, titles] = await Promise.all([chrome.tabs.get(params.tabId), groupTitles()]);
-      return tabInfo(tab, tab.groupId && tab.groupId !== -1 ? titles.get(tab.groupId) ?? "" : "");
+      const [tab, groups] = await Promise.all([chrome.tabs.get(params.tabId), groupInfo()]);
+      return tabInfo(tab, groupOf(tab, groups));
     }
 
     case "tabs.active": {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       if (tab === undefined) throw new Error("no active tab in the focused window");
-      const titles = await groupTitles();
-      return tabInfo(tab, tab.groupId && tab.groupId !== -1 ? titles.get(tab.groupId) ?? "" : "");
+      const groups = await groupInfo();
+      return tabInfo(tab, groupOf(tab, groups));
     }
 
     case "tabs.open": {
       const created = await chrome.tabs.create({ url: params.url, active: params.active !== false });
-      if (params.groupTitle) await addToGroup(created, params.groupTitle);
-      return tabInfo(await chrome.tabs.get(created.id));
+      if (params.groupTitle) await addToGroup(created, params.groupTitle, params.groupColor);
+      await waitForLoad(created.id, 15000);
+      const [tab, groups] = await Promise.all([chrome.tabs.get(created.id), groupInfo()]);
+      return tabInfo(tab, groupOf(tab, groups));
+    }
+
+    case "tabs.setGroup": {
+      const tab = await chrome.tabs.get(params.tabId);
+      if (!tab.groupId || tab.groupId === -1) throw new Error("tab is not in a tab group");
+      const patch = {};
+      if (typeof params.title === "string" && params.title.length > 0) patch.title = params.title;
+      if (typeof params.color === "string" && params.color.length > 0) patch.color = params.color;
+      await chrome.tabGroups.update(tab.groupId, patch);
+      const groups = await groupInfo();
+      return { groupId: tab.groupId, ...(groups.get(tab.groupId) ?? {}) };
     }
 
     case "tabs.close": {
       const tab = await chrome.tabs.get(params.tabId);
       if (params.groupTitle) {
-        const titles = await groupTitles();
-        const groupTitle = tab.groupId && tab.groupId !== -1 ? titles.get(tab.groupId) ?? "" : "";
+        const groups = await groupInfo();
+        const groupTitle = groupOf(tab, groups).title ?? "";
         if (groupTitle !== params.groupTitle) {
           throw new Error(`refusing to close tab ${params.tabId}: it is not in the ${params.groupTitle} tab group`);
         }

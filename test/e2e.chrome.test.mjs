@@ -84,7 +84,7 @@ try {
 
   // 2. Command round-trip.
   const ping = await server.command("ext.ping");
-  report(ping.version === "0.3.0", "ext.ping reports the manifest version", JSON.stringify(ping));
+  report(ping.version === "0.4.0", "ext.ping reports the manifest version", JSON.stringify(ping));
 
   // 3. Open a tab in the DSH group and load the local page.
   const opened = await server.command("tabs.open", {

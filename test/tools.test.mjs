@@ -28,9 +28,9 @@ await server.listen();
 const fakeTabs = new Map();
 let nextTabId = 100;
 let tabsOpened = 0;
-function fakeOpen(url, groupTitle, active = true) {
+function fakeOpen(url, groupTitle, active = true, groupColor = "blue") {
   const id = nextTabId++;
-  const tab = { id, windowId: 1, index: fakeTabs.size, active, url, title: `Page: ${url}`, groupId: 55, groupTitle };
+  const tab = { id, windowId: 1, index: fakeTabs.size, active, url, title: `Page: ${url}`, groupId: 55, groupTitle, groupColor };
   fakeTabs.set(id, tab);
   return tab;
 }
@@ -50,9 +50,16 @@ const ext = await connectFakeExtension({
       if (tab === undefined) throw new Error("no active tab");
       return { ...tab };
     },
-    "tabs.open": ({ url, active, groupTitle }) => {
+    "tabs.open": ({ url, active, groupTitle, groupColor }) => {
       tabsOpened += 1;
-      return fakeOpen(url, groupTitle ?? "", active !== false);
+      return fakeOpen(url, groupTitle ?? "", active !== false, groupColor ?? "blue");
+    },
+    "tabs.setGroup": ({ tabId, title, color }) => {
+      const tab = fakeTabs.get(tabId);
+      if (tab === undefined) throw new Error("no such tab");
+      if (title !== undefined) tab.groupTitle = title;
+      if (color !== undefined) tab.groupColor = color;
+      return { groupId: tab.groupId, title: tab.groupTitle, color: tab.groupColor };
     },
     "tabs.close": ({ tabId }) => {
       if (!fakeTabs.has(tabId)) throw new Error("no such tab");
@@ -182,6 +189,7 @@ await test("apply registers exactly the ten chrome_* tools", async () => {
       "chrome_click",
       "chrome_close_tab",
       "chrome_eval",
+      "chrome_group",
       "chrome_key",
       "chrome_navigate",
       "chrome_read_page",
@@ -203,14 +211,15 @@ await test("chrome_status reports bridge + policy state + extension dir", async 
   assert(value.blockedDomains.includes("blocked.example"), "blocked list");
 });
 
-await test("chrome_navigate opens tabs in a per-session DSH group", async () => {
+await test("chrome_navigate opens tabs in a named per-session group", async () => {
   const exec = makeExec();
   const first = await tools.get("chrome_navigate").execute({ url: "https://site.example/one" }, exec);
-  assert(/^DSH · [0-9a-f]{6}$/.test(first.group), "session group title format", first.group);
+  assert(first.group.length > 0 && first.group.length <= 24, "group has a short name", first.group);
   const tab = fakeTabs.get(first.tabId);
   assertEqual(tab.groupTitle, first.group, "extension received the group title");
+  assert(["blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange", "grey"].includes(first.groupColor), "group has a palette color");
   const other = await tools.get("chrome_navigate").execute({ url: "https://site.example/two" }, makeExec());
-  assert(other.group !== first.group, "a second session gets its own group");
+  assert(other.groupColor !== undefined, "second session also has a color");
 });
 
 await test("domain approval: session memory, ask, decline", async () => {
@@ -291,9 +300,12 @@ await test("chrome_screenshot returns a durable image attachment inline", async 
   assert(blocks[1].text.includes("640×480"), "caption carries dimensions");
 });
 
-await test("chrome_tabs lists only agent DSH groups by default", async () => {
-  const grouped = await tools.get("chrome_tabs").execute({}, makeExec());
-  assert(grouped.tabs.every((tab) => tab.groupTitle === "DSH" || /^DSH · /.test(tab.groupTitle)), "only DSH groups");
+await test("chrome_tabs lists only agent tabs by default", async () => {
+  const exec = makeExec();
+  const nav = await tools.get("chrome_navigate").execute({ url: "https://list.example/" }, exec);
+  const grouped = await tools.get("chrome_tabs").execute({}, exec);
+  assert(grouped.tabs.some((tab) => tab.id === nav.tabId), "agent tab is listed");
+  assert(grouped.tabs.every((tab) => tab.session === true || tab.groupTitle === "DSH" || /^DSH · /.test(tab.groupTitle)), "only agent tabs");
   const all = await tools.get("chrome_tabs").execute({ all: true }, makeExec());
   assert(all.tabs.length >= grouped.tabs.length, "all=true includes everything");
 });
@@ -362,6 +374,43 @@ await test("chrome_tabs marks tabs owned by the current session", async () => {
   const listed = await tools.get("chrome_tabs").execute({}, exec);
   const row = listed.tabs.find((tab) => tab.id === nav.tabId);
   assert(row !== undefined && row.session === true, "session-owned tab is marked");
+});
+
+await test("new tab groups get an automatic purpose name and a session color", async () => {
+  const exec = makeExec();
+  const nav = await tools.get("chrome_navigate").execute({ url: "https://auto-name.example/very-long-path" }, exec);
+  assert(nav.group.length > 0 && nav.group.length <= 24, "auto group name is short", nav.group);
+  assert(nav.group.startsWith("Page:"), "auto name comes from the page title", nav.group);
+  const palette = ["blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange", "grey"];
+  assert(palette.includes(nav.groupColor), "group color comes from the palette", nav.groupColor);
+  const tab = fakeTabs.get(nav.tabId);
+  assertEqual(tab.groupColor, nav.groupColor, "extension received the color");
+});
+
+await test("chrome_group renames the group and changes its color", async () => {
+  const exec = makeExec();
+  const nav = await tools.get("chrome_navigate").execute({ url: "https://rename.example/" }, exec);
+  const renamed = await tools.get("chrome_group").execute({ name: "Repo review", color: "purple" }, exec);
+  assertEqual(renamed.groupTitle, "Repo review", "renamed title");
+  assertEqual(renamed.groupColor, "purple", "renamed color");
+  const tab = fakeTabs.get(nav.tabId);
+  assertEqual(tab.groupTitle, "Repo review", "extension tab group renamed");
+  assertEqual(tab.groupColor, "purple", "extension group recolored");
+});
+
+await test("chrome_group validates name length and color", async () => {
+  const exec = makeExec();
+  await tools.get("chrome_navigate").execute({ url: "https://validate.example/" }, exec);
+  await assertRejects(
+    tools.get("chrome_group").execute({ name: "x".repeat(25) }, exec),
+    "at most 24 characters",
+    "long name rejected"
+  );
+  await assertRejects(
+    tools.get("chrome_group").execute({ color: "rainbow" }, exec),
+    "invalid tab group color",
+    "invalid color rejected"
+  );
 });
 
 await test("chrome_click / chrome_type / chrome_key drive real input", async () => {

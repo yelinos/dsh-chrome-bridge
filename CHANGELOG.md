@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-04
+
+### Added
+
+- Per-session tab-group colors: each session's group gets a stable color from
+  Chrome's tab-group palette, so concurrent agent groups are easy to tell
+  apart.
+- Purpose names for tab groups: a new group defaults to the first page's title
+  (at most 24 characters), and the new `chrome_group` tool lets the agent set
+  a short purpose label and/or change the color.
+- `chrome_tabs` reports `groupColor` and marks session-owned tabs.
+
+### Changed
+
+- Agent-tab membership is now tracked by tab id instead of the `DSH ·` title
+  prefix, so renamed groups keep working with listing, reuse, and close
+  guards.
+
 ## [0.3.0] - 2026-11-04
 
 ### Changed
