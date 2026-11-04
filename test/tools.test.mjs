@@ -27,6 +27,7 @@ await server.listen();
 /** Fake browser state driven by the fake extension handlers. */
 const fakeTabs = new Map();
 let nextTabId = 100;
+let tabsOpened = 0;
 function fakeOpen(url, groupTitle, active = true) {
   const id = nextTabId++;
   const tab = { id, windowId: 1, index: fakeTabs.size, active, url, title: `Page: ${url}`, groupId: 55, groupTitle };
@@ -49,7 +50,10 @@ const ext = await connectFakeExtension({
       if (tab === undefined) throw new Error("no active tab");
       return { ...tab };
     },
-    "tabs.open": ({ url, active, groupTitle }) => fakeOpen(url, groupTitle ?? "", active !== false),
+    "tabs.open": ({ url, active, groupTitle }) => {
+      tabsOpened += 1;
+      return fakeOpen(url, groupTitle ?? "", active !== false);
+    },
     "tabs.close": ({ tabId }) => {
       if (!fakeTabs.has(tabId)) throw new Error("no such tab");
       fakeTabs.delete(tabId);
@@ -105,6 +109,8 @@ const attachmentsStore = {
   },
 };
 const emittedEvents = [];
+/** Captured ctx.on handlers, keyed by event name. */
+const hostHandlers = new Map();
 
 const registered = [];
 const ctx = {
@@ -124,6 +130,19 @@ const ctx = {
   emit: (name) => {
     emittedEvents.push(name);
   },
+  effect: (fn) => {
+    const dispose = fn();
+    return typeof dispose === "function" ? dispose : () => {};
+  },
+  on: (event, handler) => {
+    let list = hostHandlers.get(event);
+    if (list === undefined) {
+      list = [];
+      hostHandlers.set(event, list);
+    }
+    list.push(handler);
+    return () => {};
+  },
   inject: (names, callback) => {
     const available = { settings: settingsStore, attachments: attachmentsStore };
     if (!names.every((n) => available[n] !== undefined)) return;
@@ -139,6 +158,9 @@ const config = {
   allowedDomains: persistedAllowed,
   blockedDomains: ["blocked.example"],
   maxSnapshotChars: 24000,
+  maxSessionTabs: 3,
+  autoCloseIdleMs: 0,
+  autoCloseOnSessionEnd: true,
 };
 plugin.apply(ctx, config);
 const tools = new Map(registered.map((tool) => [tool.name, tool]));
@@ -289,6 +311,57 @@ await test("chrome_close_tab refuses tabs outside agent groups", async () => {
   const closed = await tools.get("chrome_close_tab").execute({ tabId: nav.tabId }, exec);
   assertEqual(closed.tabId, nav.tabId, "agent tab closed");
   assert(!fakeTabs.has(nav.tabId), "removed from the fake browser");
+});
+
+await test("chrome_navigate reuses the session tab by default", async () => {
+  const exec = makeExec();
+  const openedBefore = tabsOpened;
+  const first = await tools.get("chrome_navigate").execute({ url: "https://reuse.example/one" }, exec);
+  assertEqual(first.reused, false, "first visit opens a tab");
+  const second = await tools.get("chrome_navigate").execute({ url: "https://reuse.example/two" }, exec);
+  assertEqual(second.tabId, first.tabId, "second navigation reuses the same tab");
+  assertEqual(second.reused, true, "second navigation reports reuse");
+  assertEqual(tabsOpened - openedBefore, 1, "only one tab was created for two navigations");
+  const third = await tools.get("chrome_navigate").execute({ url: "https://reuse.example/three", newTab: true }, exec);
+  assert(third.tabId !== first.tabId, "newTab: true opens another tab");
+  assertEqual(tabsOpened - openedBefore, 2, "exactly one extra tab for newTab");
+});
+
+await test("maxSessionTabs closes the least recently used session tab", async () => {
+  const previous = config.maxSessionTabs;
+  config.maxSessionTabs = 2;
+  try {
+    const exec = makeExec();
+    const openedBefore = tabsOpened;
+    const a = await tools.get("chrome_navigate").execute({ url: "https://cap.example/a", newTab: true }, exec);
+    const b = await tools.get("chrome_navigate").execute({ url: "https://cap.example/b", newTab: true }, exec);
+    const c = await tools.get("chrome_navigate").execute({ url: "https://cap.example/c", newTab: true }, exec);
+    assertEqual(tabsOpened - openedBefore, 3, "three tabs opened");
+    assert(c.closedTabs.includes(a.tabId), "oldest tab closed by the cap", JSON.stringify(c.closedTabs));
+    assert(!fakeTabs.has(a.tabId), "oldest tab actually gone");
+    assert(fakeTabs.has(b.tabId) && fakeTabs.has(c.tabId), "newest tabs kept");
+  } finally {
+    config.maxSessionTabs = previous;
+  }
+});
+
+await test("agent/disposed closes every tab the session opened", async () => {
+  const exec = makeExec();
+  const nav = await tools.get("chrome_navigate").execute({ url: "https://dispose.example/" }, exec);
+  assert(fakeTabs.has(nav.tabId), "tab exists before disposal");
+  const handlers = hostHandlers.get("agent/disposed") ?? [];
+  assert(handlers.length === 1, "agent/disposed handler registered");
+  handlers[0]({ agent: exec.agent });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert(!fakeTabs.has(nav.tabId), "tab closed when the agent is disposed");
+});
+
+await test("chrome_tabs marks tabs owned by the current session", async () => {
+  const exec = makeExec();
+  const nav = await tools.get("chrome_navigate").execute({ url: "https://owned.example/" }, exec);
+  const listed = await tools.get("chrome_tabs").execute({}, exec);
+  const row = listed.tabs.find((tab) => tab.id === nav.tabId);
+  assert(row !== undefined && row.session === true, "session-owned tab is marked");
 });
 
 await test("chrome_click / chrome_type / chrome_key drive real input", async () => {

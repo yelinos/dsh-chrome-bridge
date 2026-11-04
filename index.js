@@ -26,6 +26,12 @@ const Config = z.object({
   allowedDomains: z.array(z.string()).default([]).volatile(),
   blockedDomains: z.array(z.string()).default([]),
   maxSnapshotChars: z.number().default(24000),
+  /** Maximum agent tabs kept open per session; the least recently used is closed first. */
+  maxSessionTabs: z.number().default(3),
+  /** Close agent tabs not used for this long (0 disables idle cleanup). */
+  autoCloseIdleMs: z.number().default(180000),
+  /** Close all of a session's agent tabs when its agent is disposed. */
+  autoCloseOnSessionEnd: z.boolean().default(true),
 });
 
 const inject = ["tools", "chromeBridge", "userQuestions", "workingDirectory"];
@@ -63,7 +69,7 @@ function apply(ctx, config) {
   const sessionApproved = new Map();
   /** Hostnames approved with "Always allow" for this process lifetime. */
   const runtimeAllowed = new Set();
-  /** session → Set(tabId) tabs this session opened. */
+  /** session → Map(tabId → { lastUsed, openedAt }) tabs this session opened. */
   const sessionTabs = new Map();
   /** session → last tabId this session used. */
   const lastTab = new Map();
@@ -145,16 +151,82 @@ function apply(ctx, config) {
     return groupTitle === config.tabGroupTitle || groupTitle.startsWith(`${config.tabGroupTitle} ·`);
   }
 
-  function noteTab(exec, tabId) {
+  /** Record that the session touched `tabId` now, creating the record if needed. */
+  function touchTab(exec, tabId) {
     const session = sessionOf(exec);
     if (session === null) return;
     lastTab.set(session, tabId);
     let tabs = sessionTabs.get(session);
     if (tabs === undefined) {
-      tabs = new Set();
+      tabs = new Map();
       sessionTabs.set(session, tabs);
     }
-    tabs.add(tabId);
+    const existing = tabs.get(tabId);
+    tabs.set(tabId, {
+      lastUsed: Date.now(),
+      openedAt: existing?.openedAt ?? Date.now(),
+    });
+  }
+
+  /** Close one tab, ignoring a tab that is already gone. */
+  async function closeTabQuietly(tabId) {
+    try {
+      await bridge.command("tabs.close", { tabId });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Keep a session within `maxSessionTabs`: close its least recently used
+   * tabs, never the tab the current call is working in.
+   */
+  async function enforceTabLimit(exec, currentTabId) {
+    const session = sessionOf(exec);
+    if (session === null) return [];
+    const tabs = sessionTabs.get(session);
+    if (tabs === undefined) return [];
+    const closed = [];
+    while (tabs.size > config.maxSessionTabs) {
+      let oldest;
+      for (const [tabId, record] of tabs) {
+        if (tabId === currentTabId) continue;
+        if (oldest === undefined || record.lastUsed < oldest.record.lastUsed) oldest = { tabId, record };
+      }
+      if (oldest === undefined) break;
+      tabs.delete(oldest.tabId);
+      if (await closeTabQuietly(oldest.tabId)) closed.push(oldest.tabId);
+    }
+    return closed;
+  }
+
+  /**
+   * Close agent tabs this session has not touched for `autoCloseIdleMs`.
+   * The session's current tab is kept while the session is live.
+   */
+  async function cleanupIdleTabs() {
+    if (!(config.autoCloseIdleMs > 0)) return;
+    const cutoff = Date.now() - config.autoCloseIdleMs;
+    for (const [session, tabs] of sessionTabs) {
+      const current = lastTab.get(session);
+      for (const [tabId, record] of [...tabs]) {
+        if (tabId === current) continue;
+        if (record.lastUsed > cutoff) continue;
+        tabs.delete(tabId);
+        await closeTabQuietly(tabId);
+      }
+      if (tabs.size === 0) sessionTabs.delete(session);
+    }
+  }
+
+  /** Close every tab a session opened (used when its agent is disposed). */
+  async function closeSessionTabs(session) {
+    const tabs = sessionTabs.get(session);
+    lastTab.delete(session);
+    sessionTabs.delete(session);
+    if (tabs === undefined) return;
+    for (const tabId of tabs.keys()) await closeTabQuietly(tabId);
   }
 
   function parseHttpUrl(raw) {
@@ -255,7 +327,7 @@ function apply(ctx, config) {
     if (typeof info.url === "string" && info.url.length > 0 && /^https?:/i.test(info.url)) {
       await ensureDomainAllowed(exec, info.url);
     }
-    noteTab(exec, tabId);
+    touchTab(exec, tabId);
     return info;
   }
 
@@ -321,8 +393,13 @@ function apply(ctx, config) {
       },
       async execute(args, exec) {
         const tabs = await bridge.command("tabs.list", {}, exec.signal);
+        const session = sessionOf(exec);
+        const owned = session === null ? undefined : sessionTabs.get(session);
         const filtered = args.all === true ? tabs : tabs.filter((tab) => inAgentGroup(tab.groupTitle ?? ""));
-        return { tabs: filtered, total: tabs.length };
+        return {
+          tabs: filtered.map((tab) => ({ ...tab, session: owned?.has(tab.id) === true })),
+          total: tabs.length,
+        };
       },
     })
   );
@@ -331,7 +408,7 @@ function apply(ctx, config) {
     defineTool({
       name: "chrome_navigate",
       description:
-        "Navigate to a URL in the user's signed-in Chrome: in an existing tab when tabId is given, otherwise in a new tab inside this session's DSH tab group. Asks the user for approval the first time a domain is used. Returns the tab id, final URL, and page title.",
+        "Navigate to a URL in the user's signed-in Chrome. By default it REUSES this session's current agent tab, so multi-step work stays in one page; only pass newTab: true when a page must stay open for comparison. Pass tabId to target a specific tab. Asks the user for approval the first time a domain is used. Returns the tab id, final URL, and page title.",
       parameters: {
         url: {
           type: "string",
@@ -340,7 +417,12 @@ function apply(ctx, config) {
         },
         tabId: {
           type: "integer",
-          description: "Existing tab to navigate; omit to open a new tab in the session's DSH group.",
+          description: "Existing tab to navigate; omit to reuse the session's current tab.",
+        },
+        newTab: {
+          type: "boolean",
+          description:
+            "Open a NEW tab instead of reusing the current one. Defaults to false; use it only when the current page must stay open.",
         },
         background: {
           type: "boolean",
@@ -350,7 +432,12 @@ function apply(ctx, config) {
       output: {
         schema: looseObject,
         render: (_args, value) => [
-          { type: "text", text: `${value.opened ? "Opened" : "Navigated"} tab [${value.tabId}] in ${value.group}: ${value.title} — ${value.url}` },
+          {
+            type: "text",
+            text:
+              `${value.reused ? "Reused" : "Opened"} tab [${value.tabId}] in ${value.group}: ${value.title} — ${value.url}` +
+              (value.closedTabs.length > 0 ? ` (closed least-recently-used: ${value.closedTabs.join(", ")})` : ""),
+          },
         ],
       },
       async execute(args, exec) {
@@ -358,18 +445,45 @@ function apply(ctx, config) {
         await ensureDomainAllowed(exec, args.url);
         const group = groupTitleFor(exec);
         let info;
+        let reused = false;
         if (args.tabId !== undefined) {
           info = await bridge.command("page.navigate", { tabId: args.tabId, url: args.url }, exec.signal);
         } else {
-          info = await bridge.command(
-            "tabs.open",
-            { url: args.url, active: args.background !== true, groupTitle: group },
-            exec.signal
-          );
+          // Reuse the session's current agent tab unless a new tab is requested.
+          if (args.newTab !== true) {
+            const session = sessionOf(exec);
+            const preferred = session === null ? undefined : lastTab.get(session);
+            if (preferred !== undefined) {
+              try {
+                const existing = await bridge.command("tabs.get", { tabId: preferred }, exec.signal);
+                if (inAgentGroup(existing.groupTitle ?? "")) {
+                  info = await bridge.command("page.navigate", { tabId: preferred, url: args.url }, exec.signal);
+                  reused = true;
+                }
+              } catch {
+                if (session !== null) lastTab.delete(session);
+              }
+            }
+          }
+          if (info === undefined) {
+            info = await bridge.command(
+              "tabs.open",
+              { url: args.url, active: args.background !== true, groupTitle: group },
+              exec.signal
+            );
+          }
         }
-        noteTab(exec, info.id);
-        return { opened: args.tabId === undefined, tabId: info.id, url: info.url, title: info.title, group };
-      },
+        touchTab(exec, info.id);
+        const closedTabs = (args.tabId !== undefined || reused) ? [] : await enforceTabLimit(exec, info.id);
+        return {
+          reused,
+          tabId: info.id,
+          url: info.url,
+          title: info.title,
+          group,
+          closedTabs,
+        };
+      }
     })
   );
 
@@ -664,6 +778,25 @@ function apply(ctx, config) {
       },
     })
   );
+
+  // Idle cleanup: close agent tabs the session has not touched for a while,
+  // so a long-running profile does not accumulate stale tabs.
+  if (config.autoCloseIdleMs > 0) {
+    const timer = setInterval(() => {
+      void cleanupIdleTabs().catch(() => {});
+    }, Math.min(30000, Math.max(5000, Math.floor(config.autoCloseIdleMs / 2))));
+    ctx.effect(() => () => clearInterval(timer), "chrome-bridge.idle-cleanup");
+  }
+
+  // Session-end cleanup: when an agent is disposed, close every tab its
+  // session opened through this plugin.
+  if (config.autoCloseOnSessionEnd && typeof ctx.on === "function") {
+    ctx.on("agent/disposed", (payload) => {
+      const session = payload?.agent?.session;
+      if (session === undefined || session === null) return;
+      void closeSessionTabs(session).catch(() => {});
+    });
+  }
 }
 
 export { Config, apply, inject, name };

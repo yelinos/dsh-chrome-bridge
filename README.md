@@ -23,6 +23,7 @@
 | 真实鼠标键盘 | 选择器或坐标点击（支持双击/右键）、文本输入、按键与组合键（CDP `Input` 域） |
 | 按域名授权 | 首次接触域名弹出「本次会话允许 / 始终允许 / 拒绝」；始终允许经 settings 服务持久化 |
 | 会话级标签组 | 每个 Agent 会话独立 `DSH · <会话标识>` 标签组，多会话并行互不干扰 |
+| 标签页自动回收 | 默认**复用当前会话标签页**；每会话最多保留 `maxSessionTabs` 个，超出按 LRU 自动关闭；空闲超时与会话结束时自动清理 |
 | 截图直回对话 | PNG 经附件管线作为图像内容块直接给模型；无附件服务时回退为工作区文件 |
 | 侧栏面板 | 右侧栏「+」菜单 → Chrome 桥接：连接状态、安装引导、域名名单 |
 | 安全边界 | `blockedDomains` 永远拒绝；只能关闭 Agent 标签组内的页 |
@@ -78,7 +79,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-chrome-bridge
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.2.1
+- extension: DSH Chrome Bridge 0.3.0
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
 
@@ -88,7 +89,7 @@ DSH Chrome Bridge connected:
 |---|---|
 | `chrome_status` | 桥接状态、扩展信息、扩展目录、域名名单 |
 | `chrome_tabs` | 列出标签页（默认仅 Agent 的 DSH 标签组，`all: true` 列全部） |
-| `chrome_navigate` | 打开/导航标签页（新页进本会话的 DSH 标签组），域名门禁 |
+| `chrome_navigate` | 导航页面：**默认复用本会话当前标签页**，`newTab: true` 才新开；域名门禁 |
 | `chrome_read_page` | 读页面 URL/标题/可见文本（截断） |
 | `chrome_eval` | 在页面里执行 JS 并返回 JSON 值 |
 | `chrome_click` | 真实鼠标点击：CSS 选择器或 x/y 坐标、双击、右键 |
@@ -117,6 +118,9 @@ DSH Chrome Bridge connected:
 | `allowedDomains` | `[]` | 始终允许的域名；volatile，可被「始终允许」写入并持久化 |
 | `blockedDomains` | `[]` | 拒绝的域名 |
 | `maxSnapshotChars` | `24000` | 页面文本截断长度 |
+| `maxSessionTabs` | `3` | 每会话最多保留的 Agent 标签页；超出时关闭最久未用的 |
+| `autoCloseIdleMs` | `180000` | 标签页空闲多久后自动关闭（0 关闭空闲清理） |
+| `autoCloseOnSessionEnd` | `true` | Agent 会话结束时关闭其打开的所有标签页 |
 
 修改方式：编辑 profile 的 `cordis.patch.yml`，按 id 覆盖对应行的 `config`；
 或直接在对话里选择「始终允许」，由 settings 服务写入 `allowedDomains`。

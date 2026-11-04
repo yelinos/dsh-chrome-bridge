@@ -20,3 +20,6 @@
         allowedDomains: []
         blockedDomains: []
         maxSnapshotChars: 24000
+        maxSessionTabs: 3
+        autoCloseIdleMs: 180000
+        autoCloseOnSessionEnd: true

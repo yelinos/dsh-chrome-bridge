@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-04
+
+### Changed
+
+- `chrome_navigate` now **reuses the session's current agent tab by default**
+  instead of opening a new tab on every call. Pass `newTab: true` only when a
+  page must stay open (for example to compare two pages).
+
+### Added
+
+- Automatic tab recycling: at most `maxSessionTabs` agent tabs per session
+  (default 3); the least recently used tab is closed when the limit is
+  exceeded.
+- Idle cleanup: agent tabs untouched for `autoCloseIdleMs` (default 3 minutes)
+  are closed automatically; the session's current tab is kept while the
+  session is live.
+- Session-end cleanup: when an agent is disposed, every tab its session opened
+  through the plugin is closed.
+- `chrome_tabs` marks tabs owned by the current session (`session: true`).
+
 ## [0.2.1] - 2026-11-04
 
 ### Fixed

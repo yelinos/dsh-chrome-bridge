@@ -27,6 +27,7 @@ for your approval the first time it touches a new domain.
 | Real mouse & keyboard | Selector or coordinate clicks (double click, right/middle button), text input, key presses with modifiers (CDP `Input` domain) |
 | Per-domain approval | First visit to a domain asks "allow this session / always allow / decline"; "always" persists through the DSH settings service |
 | Per-session tab groups | Each agent session gets its own `DSH · <session>` group, so concurrent sessions never collide |
+| Automatic tab recycling | Reuses the session's current tab by default; keeps at most `maxSessionTabs` tabs per session (LRU eviction), closes idle tabs and everything on session end |
 | Inline screenshots | PNG bytes are admitted through the attachment pipeline and returned as a model-visible image block; falls back to a workspace file |
 | Sidebar panel | Right sidebar "+" menu → Chrome Bridge: live status, install guide, domain lists |
 | Safety rails | `blockedDomains` always wins; only agent tab groups can be closed |
@@ -85,7 +86,7 @@ Ask the agent to call `chrome_status`; it should report:
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.2.1
+- extension: DSH Chrome Bridge 0.3.0
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
 
@@ -95,7 +96,7 @@ DSH Chrome Bridge connected:
 |---|---|
 | `chrome_status` | Bridge state, extension info, install directory, domain lists |
 | `chrome_tabs` | List tabs (agent DSH groups by default; `all: true` for everything) |
-| `chrome_navigate` | Open/navigate a tab in the session's DSH group; domain gate |
+| `chrome_navigate` | Navigate: **reuses the session's current tab by default**; `newTab: true` opens another; domain gate |
 | `chrome_read_page` | Read URL, title, and visible text (truncated) |
 | `chrome_eval` | Evaluate JavaScript and return a JSON value |
 | `chrome_click` | Real mouse click by CSS selector or x/y; double click, right button |
@@ -124,6 +125,9 @@ DSH Chrome Bridge connected:
 | `allowedDomains` | `[]` | Always-allowed hostnames; volatile, written by "Always allow" and persisted |
 | `blockedDomains` | `[]` | Always-denied hostnames |
 | `maxSnapshotChars` | `24000` | Page-text truncation length |
+| `maxSessionTabs` | `3` | Max agent tabs kept per session; the least recently used is closed first |
+| `autoCloseIdleMs` | `180000` | Close agent tabs idle for this long (0 disables idle cleanup) |
+| `autoCloseOnSessionEnd` | `true` | Close all of a session's tabs when its agent is disposed |
 
 Override any field by id in the profile's `cordis.patch.yml`, or simply pick
 "Always allow" in the conversation and let the settings service persist it.
