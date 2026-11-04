@@ -321,13 +321,14 @@ async function showCursor(tabId, x, y, kind = "move") {
     if (!el) {
       el = document.createElement('div');
       el.id = ID;
-      el.style.cssText = 'position:fixed;left:0;top:0;width:22px;height:22px;z-index:2147483647;pointer-events:none;transition:transform 120ms ease-out,opacity 200ms;will-change:transform;opacity:0;';
+      el.style.cssText = 'position:fixed;left:0;top:0;width:28px;height:28px;z-index:2147483647;pointer-events:none;transition:transform 120ms ease-out,opacity 200ms;will-change:transform;opacity:0;';
       el.innerHTML =
-        '<svg width="22" height="22" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))">' +
+        '<span style="position:absolute;left:-6px;top:-6px;width:36px;height:36px;border-radius:50%;background:rgba(37,99,235,.16);border:1.5px solid rgba(37,99,235,.6);"></span>' +
+        '<svg width="26" height="26" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 0 4px rgba(37,99,235,.85)) drop-shadow(0 1px 2px rgba(0,0,0,.45))">' +
         '<path d="M4 2 L4 19 L9 14 L12 21 L15 20 L12 13 L19 13 Z" fill="#ffffff" stroke="#111827" stroke-width="1.2"/></svg>' +
-        '<span class="dsh-r" style="position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:rgba(59,130,246,.45);transform:scale(0);opacity:0;"></span>';
+        '<span class="dsh-r" style="position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;background:rgba(59,130,246,.55);transform:scale(0);opacity:0;"></span>';
       const style = document.createElement('style');
-      style.textContent = '@keyframes dshRipple{0%{transform:scale(.2);opacity:.9}100%{transform:scale(2.6);opacity:0}}.dsh-r.dsh-run{animation:dshRipple .45s ease-out forwards}';
+      style.textContent = '@keyframes dshRipple{0%{transform:scale(.2);opacity:.9}100%{transform:scale(2.6);opacity:0}}.dsh-r.dsh-run{animation:dshRipple .7s ease-out forwards}';
       el.appendChild(style);
       document.documentElement.appendChild(el);
     }
@@ -338,7 +339,7 @@ async function showCursor(tabId, x, y, kind = "move") {
       if (ripple) { ripple.classList.remove('dsh-run'); void ripple.offsetWidth; ripple.classList.add('dsh-run'); }
     }
     clearTimeout(window.__dshCursorTimer);
-    window.__dshCursorTimer = setTimeout(() => { const node = document.getElementById(ID); if (node) node.style.opacity = '0'; }, 2500);
+    window.__dshCursorTimer = setTimeout(() => { const node = document.getElementById(ID); if (node) node.style.opacity = '0'; }, 12000);
     return true;
   })()`;
   await cdp(tabId, "Runtime.evaluate", { expression });

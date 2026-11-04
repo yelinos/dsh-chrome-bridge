@@ -19,7 +19,7 @@ for your approval the first time it touches a new domain.
 - **Local-only loop**: the extension only dials `ws://127.0.0.1`; it never
   listens on a port and no web page can reach it.
 
-![Virtual cursor demo](docs/cursor-demo.png)
+![Virtual cursor demo](docs/cursor-demo-complex.png)
 
 ## Features
 
@@ -93,7 +93,7 @@ Ask the agent to call `chrome_status`; it should report:
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.0.1
+- extension: DSH Chrome Bridge 0.0.2
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
 

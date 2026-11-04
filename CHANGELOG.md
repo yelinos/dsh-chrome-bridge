@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-11-04
+
+### Changed
+
+- The virtual cursor stays visible for 12 seconds (was 2.5) and the click
+  ripple lasts 0.7 seconds, so users can actually see the model's pointer
+  between steps.
+
 ## [0.0.1] - 2026-11-04
 
 ### Changed

@@ -15,7 +15,7 @@
 - **纯插件挂载**：无构建步骤，Host 半身是普通 ESM。
 - **本机闭环**：扩展只主动连 `ws://127.0.0.1`，不监听端口、不暴露给网页。
 
-![Virtual cursor demo](docs/cursor-demo.png)
+![Virtual cursor demo](docs/cursor-demo-complex.png)
 
 ## 功能特性
 
@@ -86,7 +86,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-chrome-bridge
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.0.1
+- extension: DSH Chrome Bridge 0.0.2
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
 
