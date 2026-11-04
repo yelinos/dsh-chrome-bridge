@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-11-04
+
+### Changed
+
+- Public versioning restarts at 0.0.1. This release contains everything from
+  the earlier internal 0.1.0-0.6.0 iterations: per-domain approval, session
+  tab groups with colors and purpose names, tab reuse and auto-cleanup, real
+  mouse/keyboard input, virtual cursor, scrolling, compact AXTree snapshots,
+  batched actions, inline screenshots, and the sidebar panel.
+
 ## [0.6.0] - 2026-11-04
 
 ### Added
