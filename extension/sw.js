@@ -244,6 +244,7 @@ async function elementCenter(tabId, selector) {
 
 /** Dispatch one real mouse click at viewport coordinates. */
 async function clickAt(tabId, x, y, button = "left", clickCount = 1) {
+  await showCursor(tabId, x, y, "click");
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount });
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount });
@@ -308,6 +309,64 @@ async function refCenter(tabId, ref) {
   });
   const value = box.result?.value;
   if (!value || typeof value.x !== "number") throw new Error(`ref ${ref} has no layout box (not visible?)`);
+  return value;
+}
+
+
+/** Inject or move a visible virtual cursor inside the page. */
+async function showCursor(tabId, x, y, kind = "move") {
+  const expression = `(() => {
+    const ID = '__dsh_cursor__';
+    let el = document.getElementById(ID);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = ID;
+      el.style.cssText = 'position:fixed;left:0;top:0;width:22px;height:22px;z-index:2147483647;pointer-events:none;transition:transform 120ms ease-out,opacity 200ms;will-change:transform;opacity:0;';
+      el.innerHTML =
+        '<svg width="22" height="22" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))">' +
+        '<path d="M4 2 L4 19 L9 14 L12 21 L15 20 L12 13 L19 13 Z" fill="#ffffff" stroke="#111827" stroke-width="1.2"/></svg>' +
+        '<span class="dsh-r" style="position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:rgba(59,130,246,.45);transform:scale(0);opacity:0;"></span>';
+      const style = document.createElement('style');
+      style.textContent = '@keyframes dshRipple{0%{transform:scale(.2);opacity:.9}100%{transform:scale(2.6);opacity:0}}.dsh-r.dsh-run{animation:dshRipple .45s ease-out forwards}';
+      el.appendChild(style);
+      document.documentElement.appendChild(el);
+    }
+    el.style.transform = 'translate3d(${x}px, ${y}px, 0)';
+    el.style.opacity = '1';
+    if ('${kind}' === 'click') {
+      const ripple = el.querySelector('.dsh-r');
+      if (ripple) { ripple.classList.remove('dsh-run'); void ripple.offsetWidth; ripple.classList.add('dsh-run'); }
+    }
+    clearTimeout(window.__dshCursorTimer);
+    window.__dshCursorTimer = setTimeout(() => { const node = document.getElementById(ID); if (node) node.style.opacity = '0'; }, 2500);
+    return true;
+  })()`;
+  await cdp(tabId, "Runtime.evaluate", { expression });
+}
+
+/** Viewport center, for wheel scrolling without an explicit point. */
+async function viewportCenter(tabId) {
+  const result = await cdp(tabId, "Runtime.evaluate", {
+    expression: "({x: innerWidth/2, y: innerHeight/2})",
+    returnByValue: true,
+  });
+  return result.result.value;
+}
+
+/** Scroll an element (by ref) into view and show the cursor there. */
+async function scrollRef(tabId, ref) {
+  const map = refMaps.get(tabId);
+  const backendNodeId = map?.get(ref);
+  if (backendNodeId === undefined) throw new Error(`unknown ref ${JSON.stringify(ref)}; take a fresh chrome_snapshot`);
+  const resolved = await cdp(tabId, "DOM.resolveNode", { backendNodeId });
+  const box = await cdp(tabId, "Runtime.callFunctionOn", {
+    objectId: resolved.object.objectId,
+    functionDeclaration:
+      "function(){this.scrollIntoView({block:'center',inline:'center'});const r=this.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};}",
+    returnByValue: true,
+  });
+  const value = box.result?.value ?? await viewportCenter(tabId);
+  await showCursor(tabId, value.x, value.y, "scroll");
   return value;
 }
 
@@ -448,6 +507,48 @@ async function dispatch(cmd, params) {
         ...base,
       });
       return { key: params.key, modifiers: params.modifiers ?? [] };
+    }
+
+    case "input.move": {
+      const center = params.ref !== undefined
+        ? await (async () => {
+            const map = refMaps.get(params.tabId);
+            const backendNodeId = map?.get(params.ref);
+            if (backendNodeId === undefined) throw new Error(`unknown ref ${JSON.stringify(params.ref)}`);
+            const resolved = await cdp(params.tabId, "DOM.resolveNode", { backendNodeId });
+            const box = await cdp(params.tabId, "Runtime.callFunctionOn", {
+              objectId: resolved.object.objectId,
+              functionDeclaration: "function(){const r=this.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};}",
+              returnByValue: true,
+            });
+            return box.result.value;
+          })()
+        : typeof params.selector === "string"
+          ? await elementCenter(params.tabId, params.selector)
+          : { x: params.x, y: params.y };
+      if (!center || typeof center.x !== "number") throw new Error("input.move needs a ref, selector, or x/y");
+      await showCursor(params.tabId, center.x, center.y, "move");
+      await cdp(params.tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: center.x, y: center.y });
+      return center;
+    }
+
+    case "page.scroll": {
+      const center = await viewportCenter(params.tabId);
+      const x = typeof params.x === "number" ? params.x : center.x;
+      const y = typeof params.y === "number" ? params.y : center.y;
+      await showCursor(params.tabId, x, y, "scroll");
+      await cdp(params.tabId, "Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x,
+        y,
+        deltaX: params.deltaX ?? 0,
+        deltaY: params.deltaY ?? 0,
+      });
+      return { deltaX: params.deltaX ?? 0, deltaY: params.deltaY ?? 0 };
+    }
+
+    case "page.scrollRef": {
+      return scrollRef(params.tabId, params.ref);
     }
 
     case "page.snapshot": {

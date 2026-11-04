@@ -86,6 +86,9 @@ const ext = await connectFakeExtension({
     "input.type": ({ text }) => ({ typed: text.length }),
     "input.key": ({ key, modifiers }) => ({ key, modifiers: modifiers ?? [] }),
     "input.clickRef": ({ ref }) => ({ ref, x: 20, y: 30, tag: "BUTTON" }),
+    "page.scroll": ({ deltaX, deltaY }) => ({ deltaX, deltaY }),
+    "page.scrollRef": ({ ref }) => ({ ref, x: 30, y: 40 }),
+    "input.move": ({ ref, x, y }) => ({ ref, x: x ?? 50, y: y ?? 60 }),
     "page.snapshot": () => ({
       url: "https://snapshot.example/",
       title: "Snapshot Page",
@@ -205,9 +208,11 @@ await test("apply registers exactly the ten chrome_* tools", async () => {
       "chrome_eval",
       "chrome_group",
       "chrome_key",
+      "chrome_move",
       "chrome_navigate",
       "chrome_read_page",
       "chrome_screenshot",
+      "chrome_scroll",
       "chrome_snapshot",
       "chrome_status",
       "chrome_tabs",
@@ -471,6 +476,22 @@ await test("chrome_act runs several actions in one call", async () => {
   assertEqual(failing.results.length, 2, "stops after the failing action");
   assertEqual(failing.results[1].ok, false, "failure recorded");
   assertEqual(failing.stopped, true, "reports stopped");
+});
+
+await test("chrome_scroll and chrome_move drive the page", async () => {
+  const exec = makeExec();
+  await tools.get("chrome_navigate").execute({ url: "https://scroll.example/" }, exec);
+  const wheel = await tools.get("chrome_scroll").execute({ deltaY: 600 }, exec);
+  assertEqual(wheel.deltaY, 600, "wheel delta forwarded");
+  const intoView = await tools.get("chrome_scroll").execute({ ref: "e5" }, exec);
+  assertEqual(intoView.ref, "e5", "scroll to ref");
+  const moved = await tools.get("chrome_move").execute({ ref: "e2" }, exec);
+  assertEqual(moved.ref, "e2", "move to ref");
+  await assertRejects(
+    tools.get("chrome_scroll").execute({}, exec),
+    "needs either a ref or deltaX/deltaY",
+    "empty scroll rejected"
+  );
 });
 
 await test("chrome_click / chrome_type / chrome_key drive real input", async () => {

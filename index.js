@@ -986,6 +986,107 @@ function apply(ctx, config) {
 
   registerTool(
     defineTool({
+      name: "chrome_scroll",
+      description:
+        "Scroll a Chrome tab. Pass ref (from chrome_snapshot) to scroll that element into view, or deltaX/deltaY to wheel-scroll (positive deltaY scrolls down). A virtual cursor shows where the scroll happens.",
+      parameters: {
+        ref: {
+          type: "string",
+          description: 'Element ref from chrome_snapshot to scroll into view (e.g. "e12").',
+        },
+        deltaY: {
+          type: "integer",
+          description: "Vertical wheel delta in pixels; positive scrolls down (e.g. 600).",
+        },
+        deltaX: {
+          type: "integer",
+          description: "Horizontal wheel delta in pixels; positive scrolls right.",
+        },
+        tabId: {
+          type: "integer",
+          description: "Tab to scroll; omit to use the agent's last tab or the active tab.",
+        },
+      },
+      output: {
+        schema: looseObject,
+        render: (_args, value) => [
+          {
+            type: "text",
+            text:
+              value.ref !== undefined
+                ? `Scrolled ${value.ref} into view.`
+                : `Scrolled by (${value.deltaX}, ${value.deltaY}) px.`,
+          },
+        ],
+      },
+      async execute(args, exec) {
+        const tabId = await resolveTabId(exec, args.tabId);
+        await gatedTab(exec, tabId);
+        if (args.ref !== undefined) {
+          const point = await bridge.command("page.scrollRef", { tabId, ref: args.ref }, exec.signal);
+          return { tabId, ref: args.ref, ...point };
+        }
+        if (args.deltaX === undefined && args.deltaY === undefined) {
+          throw new Error("chrome_scroll needs either a ref or deltaX/deltaY");
+        }
+        const result = await bridge.command(
+          "page.scroll",
+          { tabId, deltaX: args.deltaX ?? 0, deltaY: args.deltaY ?? 0 },
+          exec.signal
+        );
+        return { tabId, ...result };
+      },
+    })
+  );
+
+  registerTool(
+    defineTool({
+      name: "chrome_move",
+      description:
+        "Move the virtual mouse cursor to an element (by ref or CSS selector) or to x/y viewport coordinates without clicking. Useful to reveal hover menus.",
+      parameters: {
+        ref: {
+          type: "string",
+          description: "Element ref from chrome_snapshot.",
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector of the element to hover.",
+        },
+        x: { type: "integer", description: "Viewport x coordinate." },
+        y: { type: "integer", description: "Viewport y coordinate." },
+        tabId: {
+          type: "integer",
+          description: "Tab to move in; omit to use the agent's last tab or the active tab.",
+        },
+      },
+      output: {
+        schema: looseObject,
+        render: (_args, value) => [
+          { type: "text", text: `Cursor moved to (${Math.round(value.x)}, ${Math.round(value.y)}).` },
+        ],
+      },
+      async execute(args, exec) {
+        const tabId = await resolveTabId(exec, args.tabId);
+        await gatedTab(exec, tabId);
+        const point = await bridge.command(
+          "input.move",
+          {
+            tabId,
+            ...(args.ref !== undefined ? { ref: args.ref } : {}),
+            ...(args.selector !== undefined ? { selector: args.selector } : {}),
+            ...(args.x !== undefined ? { x: args.x } : {}),
+            ...(args.y !== undefined ? { y: args.y } : {}),
+          },
+          exec.signal
+        );
+        return { tabId, ...point };
+      },
+    })
+  );
+
+  registerTool(
+    defineTool({
       name: "chrome_screenshot",
       description:
         "Capture a PNG screenshot of a Chrome tab; the image is returned inline as a durable attachment (model-visible directly). Uses the agent's last tab or the active tab unless tabId is given.",

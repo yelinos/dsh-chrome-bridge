@@ -37,7 +37,8 @@ const PAGE_HTML = `<!doctype html><html><head><title>E2E Local Page</title></hea
 <body><h1>Hello from local e2e</h1>
 <button id="b" onclick="document.body.dataset.clicked='yes'">click me</button>
 <input id="q" onkeydown="if(event.key==='Enter')document.body.dataset.entered='yes'" />
-<script>document.body.dataset.loaded='1'</script></body></html>`;
+<script>document.body.dataset.loaded='1'</script>
+<div style="height:2400px"></div></body></html>`;
 const httpServer = createServer((req, res) => {
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
   res.end(PAGE_HTML);
@@ -84,7 +85,7 @@ try {
 
   // 2. Command round-trip.
   const ping = await server.command("ext.ping");
-  report(ping.version === "0.5.0", "ext.ping reports the manifest version", JSON.stringify(ping));
+  report(ping.version === "0.6.0", "ext.ping reports the manifest version", JSON.stringify(ping));
 
   // 3. Open a tab in the DSH group and load the local page.
   const opened = await server.command("tabs.open", {
@@ -145,6 +146,22 @@ try {
     expression: "document.body.dataset.clicked",
   });
   report(clickedByRef.value === "yes", "ref click triggers the button handler", JSON.stringify(clickedByRef));
+
+  // 4c. Virtual cursor appears after pointer actions.
+  const cursor = await server.command("page.eval", {
+    tabId: opened.id,
+    expression: "!!document.getElementById('__dsh_cursor__')",
+  });
+  report(cursor.value === true, "virtual cursor is injected into the page", JSON.stringify(cursor));
+
+  // 4d. Wheel scrolling actually scrolls.
+  await server.command("page.scroll", { tabId: opened.id, deltaY: 700 });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const scrolled = await server.command("page.eval", {
+    tabId: opened.id,
+    expression: "window.scrollY",
+  });
+  report(scrolled.value > 0, "page.scroll moves the page", String(scrolled.value));
 
   // 5. Evaluate JavaScript.
   const title = await server.command("page.eval", { tabId: opened.id, expression: "document.title" });

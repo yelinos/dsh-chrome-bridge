@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-04
+
+### Added
+
+- A visible virtual cursor: every mouse move, click, and scroll draws an
+  in-page pointer with a click ripple, so the user can see exactly where the
+  model is acting.
+- `chrome_scroll`: wheel scrolling (`deltaX`/`deltaY`) or scrolling an element
+  ref into view.
+- `chrome_move`: move the virtual cursor to an element or point without
+  clicking (useful for hover menus).
+
 ## [0.5.0] - 2026-11-04
 
 ### Added
