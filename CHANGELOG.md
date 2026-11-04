@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-04
+
+### Fixed
+
+- `chrome_type` no longer returns a non-JSON `undefined` selector when called
+  without one.
+- Modifier combinations in `chrome_key` (for example `Ctrl+A`) are sent as raw
+  key events, so they act as shortcuts instead of inserting text.
+
 ## [0.2.0] - 2026-11-04
 
 ### Added
