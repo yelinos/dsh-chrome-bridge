@@ -91,9 +91,20 @@ try {
     url: "http://127.0.0.1:18800/",
     active: true,
     groupTitle: "DSH",
+    groupColor: "purple",
   });
   report(opened.url === "http://127.0.0.1:18800/", "tabs.open navigates", JSON.stringify(opened));
   report(opened.title === "E2E Local Page", "page loaded with the expected title", opened.title);
+
+  report(opened.groupColor === "purple", "new group uses the requested color", String(opened.groupColor));
+
+  // 3b. Rename and recolor the group through the extension.
+  const renamed = await server.command("tabs.setGroup", { tabId: opened.id, title: "E2E Group", color: "orange" });
+  report(
+    renamed.title === "E2E Group" && renamed.color === "orange",
+    "tabs.setGroup renames and recolors the group",
+    JSON.stringify(renamed)
+  );
 
   // 4. Read the page through CDP.
   const page = await server.command("page.read", { tabId: opened.id });
@@ -141,13 +152,17 @@ try {
     `${png.length} bytes`
   );
 
-  // 7. Tab listing carries the DSH group title.
+  // 7. Tab listing carries the renamed group title and color.
   const tabs = await server.command("tabs.list");
   const ours = tabs.find((tab) => tab.id === opened.id);
-  report(ours?.groupTitle === "DSH", "tabs.list shows the DSH tab group", JSON.stringify(ours ?? null));
+  report(
+    ours?.groupTitle === "E2E Group" && ours?.groupColor === "orange",
+    "tabs.list shows the renamed group and color",
+    JSON.stringify(ours ?? null)
+  );
 
   // 8. Close the tab through the bridge.
-  await server.command("tabs.close", { tabId: opened.id, groupTitle: "DSH" });
+  await server.command("tabs.close", { tabId: opened.id, groupTitle: "E2E Group" });
   const after = await server.command("tabs.list");
   report(after.every((tab) => tab.id !== opened.id), "tabs.close removes the tab");
 } catch (error) {
