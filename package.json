@@ -1,0 +1,81 @@
+{
+  "name": "dsh-chrome-bridge",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Codex Chrome extension-style browser control for DeepSeek Harness: per-domain approval, one tab group per session, real mouse and keyboard input, and inline screenshots.",
+  "license": "MIT",
+  "author": {
+    "name": "yelinos",
+    "url": "https://github.com/yelinos"
+  },
+  "homepage": "https://github.com/yelinos/dsh-chrome-bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yelinos/dsh-chrome-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yelinos/dsh-chrome-bridge/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "cordis-plugin",
+    "browser-automation",
+    "chrome-extension",
+    "browser-control",
+    "ai-agent"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test:unit": "node test/protocol.test.mjs && node test/tools.test.mjs && node test/service.test.mjs && node test/client.test.mjs",
+    "test:e2e": "node test/e2e.chrome.test.mjs",
+    "test": "npm run check && npm run test:unit"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./service": "./service.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./service/locale/*.json": "./locale/*.json",
+    "./service/icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "service.js",
+    "bridge.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/en.json",
+    "locale/zh.json",
+    "icon.svg",
+    "extension/manifest.json",
+    "extension/sw.js",
+    "extension/popup.html",
+    "extension/popup.js",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-sidebar-right"]
+    }
+  }
+}

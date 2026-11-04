@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DSH Chrome Bridge</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 13px/1.5 system-ui, sans-serif;
+        width: 300px;
+        margin: 0;
+        padding: 14px;
+      }
+      h1 { font-size: 14px; margin: 0 0 10px; }
+      .status { font-weight: 600; margin-bottom: 12px; }
+      .status.on { color: #1a73e8; }
+      .status.off { color: #9aa0a6; }
+      label { display: block; margin-bottom: 4px; font-weight: 600; }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        margin-bottom: 10px;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 6px 14px;
+        cursor: pointer;
+      }
+      .hint { margin-top: 12px; color: #5f6368; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>DSH Chrome Bridge</h1>
+    <div id="status" class="status off">Checking…</div>
+    <label for="port">Bridge port</label>
+    <input id="port" type="number" min="1" max="65535" value="8765" />
+    <label for="token">Auth token (optional)</label>
+    <input id="token" type="password" autocomplete="off" placeholder="leave empty if the host sets none" />
+    <button id="save">Save &amp; reconnect</button>
+    <p class="hint">
+      The DSH chrome-bridge plugin must be installed and listening on this port. Domain
+      approvals appear in your DSH conversation when the agent first touches a site.
+    </p>
+    <script src="popup.js"></script>
+  </body>
+</html>

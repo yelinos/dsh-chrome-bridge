@@ -1,0 +1,22 @@
+# DSH Chrome Bridge — Codex-style control of your real, signed-in Chrome.
+#
+# Two Host-level rows; no agent-preset override needed:
+#   chrome-bridge        the singleton bridge service (WebSocket server the
+#                        Chrome extension connects to)
+#   chrome-bridge-tools  the agent-facing chrome_* tools
+- insert:
+    - id: chrome-bridge
+      name: 'dsh-chrome-bridge/service'
+      config:
+        host: '127.0.0.1'
+        port: 8765
+        authToken: ''
+        commandTimeoutMs: 20000
+    - id: chrome-bridge-tools
+      name: 'dsh-chrome-bridge'
+      config:
+        tabGroupTitle: 'DSH'
+        askForNewDomains: true
+        allowedDomains: []
+        blockedDomains: []
+        maxSnapshotChars: 24000

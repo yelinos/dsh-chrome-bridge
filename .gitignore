@@ -1,0 +1,21 @@
+# Dependencies and local links
+node_modules/
+node_modules
+
+# Local development / test artifacts
+.tools
+.tools/
+test/.tmp-*/
+test/.tmp-extension/
+chrome-screenshots/
+*.log
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Build output (none today; kept for future tooling)
+dist/

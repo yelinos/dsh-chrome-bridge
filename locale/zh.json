@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Chrome 桥接（服务）",
+    "description": "DSH Chrome Bridge 扩展连接的 WebSocket 桥接服务；每个 Host 进程一个服务器实例。"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Chrome Bridge (service)",
+    "description": "WebSocket bridge the DSH Chrome Bridge extension connects to; owns one server per Host process."
+  }
+}
