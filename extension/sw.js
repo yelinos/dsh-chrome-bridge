@@ -335,23 +335,29 @@ async function dispatch(cmd, params) {
     }
 
     case "input.key": {
+      const oneChar = params.key.length === 1;
       const spec = KEY_TABLE[params.key] ?? {
-        code: params.key.length === 1 ? `Key${params.key.toUpperCase()}` : params.key,
-        keyCode: 0,
-        text: params.key.length === 1 ? params.key : undefined,
+        code: oneChar
+          ? (/[a-zA-Z]/.test(params.key) ? `Key${params.key.toUpperCase()}` : /[0-9]/.test(params.key) ? `Digit${params.key}` : params.key)
+          : params.key,
+        keyCode: oneChar ? params.key.toUpperCase().charCodeAt(0) : 0,
+        text: oneChar ? params.key : undefined,
       };
       const modifiers = modifierMask(params.modifiers);
+      const hasModifiers = modifiers !== 0;
       const base = {
-        key: params.key,
+        key: oneChar && hasModifiers ? params.key.toUpperCase() : params.key,
         code: spec.code,
         windowsVirtualKeyCode: spec.keyCode,
         nativeVirtualKeyCode: spec.keyCode,
         modifiers,
       };
+      // Modifier combinations are shortcuts: raw key events without text, so
+      // the page sees Ctrl+A rather than an inserted "a".
       await cdp(params.tabId, "Input.dispatchKeyEvent", {
-        type: spec.text === undefined ? "rawKeyDown" : "keyDown",
+        type: "rawKeyDown",
         ...base,
-        ...(spec.text === undefined ? {} : { text: spec.text }),
+        ...(hasModifiers || spec.text === undefined ? {} : { text: spec.text }),
       });
       await cdp(params.tabId, "Input.dispatchKeyEvent", {
         type: "keyUp",
