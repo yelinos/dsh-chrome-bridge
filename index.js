@@ -537,7 +537,11 @@ function apply(ctx, config) {
           await bridge.command("input.key", { tabId, key: "Backspace" }, exec.signal);
         }
         const result = await bridge.command("input.type", { tabId, text: args.text }, exec.signal);
-        return { tabId, selector: args.selector, typed: result.typed };
+        return {
+          tabId,
+          ...(args.selector !== undefined ? { selector: args.selector } : {}),
+          typed: result.typed,
+        };
       },
     })
   );
