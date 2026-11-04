@@ -25,6 +25,8 @@
 | 会话级标签组 | 每个 Agent 会话独立 `DSH · <会话标识>` 标签组，多会话并行互不干扰 |
 | 标签页自动回收 | 默认**复用当前会话标签页**；每会话最多保留 `maxSessionTabs` 个，超出按 LRU 自动关闭；空闲超时与会话结束时自动清理 |
 | 标签组配色与命名 | 每个会话按哈希分配固定颜色；组名默认取首个页面标题，Agent 可用 `chrome_group` 改为简短目的名 |
+| 紧凑快照（省 token） | `chrome_snapshot` 用无障碍树（AXTree）返回带 `e1` 引用的可交互元素，比整页文本少一个数量级 |
+| 批量动作（省往返） | `chrome_act` 一次工具调用按顺序执行多个动作（点击/输入/按键/导航），避免每步一次 LLM 往返 |
 | 截图直回对话 | PNG 经附件管线作为图像内容块直接给模型；无附件服务时回退为工作区文件 |
 | 侧栏面板 | 右侧栏「+」菜单 → Chrome 桥接：连接状态、安装引导、域名名单 |
 | 安全边界 | `blockedDomains` 永远拒绝；只能关闭 Agent 标签组内的页 |
@@ -80,7 +82,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-chrome-bridge
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.4.2
+- extension: DSH Chrome Bridge 0.5.0
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
 
@@ -98,6 +100,8 @@ DSH Chrome Bridge connected:
 | `chrome_key` | 按键：Enter/Tab/Escape/方向键等，支持 control/alt/shift/meta |
 | `chrome_screenshot` | 截图作为附件图像直接返回（不可用时落盘） |
 | `chrome_group` | 给本会话标签组起简短目的名（≤24 字符）并改颜色 |
+| `chrome_snapshot` | 返回带 ref 的紧凑可交互元素快照（AXTree） |
+| `chrome_act` | 一次调用批量执行多个动作，减少往返 |
 | `chrome_close_tab` | 关闭 Agent 标签组内的标签页（不碰用户自己的页） |
 
 ## 配置

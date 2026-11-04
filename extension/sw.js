@@ -249,6 +249,68 @@ async function clickAt(tabId, x, y, button = "left", clickCount = 1) {
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount });
 }
 
+
+/** Per-tab maps from snapshot refs ("e1") to CDP backend node ids. */
+const refMaps = new Map();
+
+/** Roles worth showing an agent in a compact accessibility snapshot. */
+const SNAPSHOT_ROLES = new Set([
+  "button", "link", "textbox", "searchbox", "checkbox", "radio", "combobox",
+  "listbox", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "switch",
+  "slider", "spinbutton", "heading", "img", "option", "treeitem",
+]);
+
+/** Build a compact accessibility-tree snapshot with stable refs. */
+async function accessibilitySnapshot(tabId, maxElements) {
+  await cdp(tabId, "Accessibility.enable");
+  const page = await cdp(tabId, "Runtime.evaluate", {
+    expression: "JSON.stringify({url: location.href, title: document.title})",
+    returnByValue: true,
+  });
+  const identity = JSON.parse(page.result.value);
+  const { nodes } = await cdp(tabId, "Accessibility.getFullAXTree");
+  const map = new Map();
+  const elements = [];
+  let index = 0;
+  for (const node of nodes) {
+    if (node.ignored === true) continue;
+    const role = node.role?.value;
+    if (!SNAPSHOT_ROLES.has(role)) continue;
+    const name = String(node.name?.value ?? "").trim();
+    if (name.length === 0 && role !== "textbox" && role !== "searchbox") continue;
+    index += 1;
+    if (index > maxElements) break;
+    const ref = `e${index}`;
+    map.set(ref, node.backendDOMNodeId);
+    const value = node.value?.value;
+    elements.push({
+      ref,
+      role,
+      name: name.slice(0, 80),
+      ...(typeof value === "string" && value.length > 0 ? { value: value.slice(0, 80) } : {}),
+    });
+  }
+  refMaps.set(tabId, map);
+  return { ...identity, elements, truncated: index > maxElements };
+}
+
+/** Center of an element referenced by a snapshot ref. */
+async function refCenter(tabId, ref) {
+  const map = refMaps.get(tabId);
+  const backendNodeId = map?.get(ref);
+  if (backendNodeId === undefined) throw new Error(`unknown ref ${JSON.stringify(ref)}; take a fresh chrome_snapshot`);
+  const resolved = await cdp(tabId, "DOM.resolveNode", { backendNodeId });
+  const box = await cdp(tabId, "Runtime.callFunctionOn", {
+    objectId: resolved.object.objectId,
+    functionDeclaration:
+      "function(){const r=this.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2, tag:this.tagName};}",
+    returnByValue: true,
+  });
+  const value = box.result?.value;
+  if (!value || typeof value.x !== "number") throw new Error(`ref ${ref} has no layout box (not visible?)`);
+  return value;
+}
+
 async function dispatch(cmd, params) {
   switch (cmd) {
     case "ext.ping":
@@ -386,6 +448,16 @@ async function dispatch(cmd, params) {
         ...base,
       });
       return { key: params.key, modifiers: params.modifiers ?? [] };
+    }
+
+    case "page.snapshot": {
+      return accessibilitySnapshot(params.tabId, params.maxElements ?? 120);
+    }
+
+    case "input.clickRef": {
+      const center = await refCenter(params.tabId, params.ref);
+      await clickAt(params.tabId, center.x, center.y, params.button ?? "left", params.clickCount ?? 1);
+      return { ref: params.ref, x: center.x, y: center.y, tag: center.tag };
     }
 
     case "page.screenshot": {

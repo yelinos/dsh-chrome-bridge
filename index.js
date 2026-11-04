@@ -64,6 +64,12 @@ function isLabel(answer, labels) {
 function apply(ctx, config) {
   const bridge = ctx.chromeBridge;
   const entryId = ctx.fiber?.entry?.options?.id;
+  /** Definitions by name, so chrome_act can compose them in one call. */
+  const definitions = new Map();
+  function registerTool(definition) {
+    definitions.set(definition.name, definition);
+    ctx.tools.register(definition);
+  }
 
   /** session → Set(hostname) approved for that session only. */
   const sessionApproved = new Map();
@@ -379,7 +385,7 @@ function apply(ctx, config) {
     return info;
   }
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_status",
       description:
@@ -414,7 +420,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_tabs",
       description:
@@ -462,7 +468,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_navigate",
       description:
@@ -573,7 +579,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_group",
       description:
@@ -631,7 +637,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_read_page",
       description:
@@ -667,7 +673,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_eval",
       description:
@@ -697,12 +703,136 @@ function apply(ctx, config) {
   );
 
 
-  ctx.tools.register(
+  registerTool(
+    defineTool({
+      name: "chrome_snapshot",
+      description:
+        "Return a compact accessibility snapshot of a Chrome tab: interactive elements (buttons, links, inputs, menus) with stable refs like e1. Far fewer tokens and much faster than reading the whole page; take a snapshot, then use refs with chrome_click / chrome_type. Use chrome_read_page when you need article text.",
+      parameters: {
+        tabId: {
+          type: "integer",
+          description: "Tab to snapshot; omit to use the agent's last tab or the active tab.",
+        },
+        maxElements: {
+          type: "integer",
+          description: "Maximum elements to return (default 120).",
+        },
+      },
+      output: {
+        schema: looseObject,
+        render: (_args, value) => [
+          {
+            type: "text",
+            text:
+              `${value.url}\n${value.title}\n\n` +
+              (value.elements.length === 0
+                ? "(no interactive elements)"
+                : value.elements
+                    .map(
+                      (element) =>
+                        `[${element.ref}] ${element.role} ${JSON.stringify(element.name)}` +
+                        (element.value !== undefined ? ` = ${JSON.stringify(element.value)}` : "")
+                    )
+                    .join("\n")) +
+              (value.truncated ? "\n\n(elements truncated)" : ""),
+          },
+        ],
+      },
+      async execute(args, exec) {
+        const tabId = await resolveTabId(exec, args.tabId);
+        await gatedTab(exec, tabId);
+        const snapshot = await bridge.command(
+          "page.snapshot",
+          { tabId, maxElements: args.maxElements ?? 120 },
+          exec.signal
+        );
+        return { tabId, ...snapshot };
+      },
+    })
+  );
+
+  registerTool(
+    defineTool({
+      name: "chrome_act",
+      description:
+        "Run several browser actions in ONE tool call to avoid a round trip per step. Each action is {tool, args} using chrome_navigate / chrome_click / chrome_type / chrome_key / chrome_snapshot / chrome_read_page / chrome_eval. Actions run in order and stop at the first error. Example: {actions:[{tool:\"chrome_click\",args:{ref:\"e3\"}},{tool:\"chrome_type\",args:{text:\"hello\"}},{tool:\"chrome_key\",args:{key:\"Enter\"}},{tool:\"chrome_snapshot\",args:{}}]}",
+      parameters: {
+        actions: {
+          type: "array",
+          required: true,
+          description: "Ordered actions; each is {tool, args}. Stops at the first failing action.",
+          items: {
+            type: "object",
+            additionalProperties: true,
+            properties: {
+              tool: {
+                type: "string",
+                required: true,
+                description: "A chrome_* tool name.",
+              },
+              args: {
+                type: "object",
+                additionalProperties: true,
+                description: "Arguments for that tool.",
+              },
+            },
+          },
+        },
+      },
+      output: {
+        schema: looseObject,
+        render: (_args, value) => [
+          {
+            type: "text",
+            text:
+              value.results
+                .map(
+                  (result, index) =>
+                    `${index + 1}. ${result.tool}: ${result.ok ? "ok" : `ERROR ${result.error}`}`
+                )
+                .join("\n") +
+              (value.stopped ? `\nStopped at action ${value.results.length}; later actions were not run.` : ""),
+          },
+        ],
+      },
+      async execute(args, exec) {
+        if (!Array.isArray(args.actions) || args.actions.length === 0) {
+          throw new Error("chrome_act needs at least one action");
+        }
+        if (args.actions.length > 20) throw new Error("chrome_act accepts at most 20 actions");
+        const results = [];
+        let stopped = false;
+        for (const action of args.actions) {
+          const definition = definitions.get(action.tool);
+          if (definition === undefined) {
+            results.push({ tool: action.tool, ok: false, error: "unknown tool" });
+            stopped = true;
+            break;
+          }
+          try {
+            const value = await definition.execute(action.args ?? {}, exec);
+            results.push({ tool: action.tool, ok: true, value });
+          } catch (error) {
+            results.push({ tool: action.tool, ok: false, error: String(error?.message ?? error) });
+            stopped = true;
+            break;
+          }
+        }
+        return { results, stopped };
+      },
+    })
+  );
+
+  registerTool(
     defineTool({
       name: "chrome_click",
       description:
         "Click in a Chrome tab with a real mouse event. Pass a CSS selector to click an element, or x/y viewport coordinates. Uses the agent's last tab or the active tab unless tabId is given.",
       parameters: {
+        ref: {
+          type: "string",
+          description: 'Element ref from chrome_snapshot (for example "e3"). Preferred over CSS selectors.',
+        },
         selector: {
           type: "string",
           description: "CSS selector of the element to click; the element is scrolled into view first.",
@@ -737,6 +867,14 @@ function apply(ctx, config) {
       async execute(args, exec) {
         const tabId = await resolveTabId(exec, args.tabId);
         await gatedTab(exec, tabId);
+        if (args.ref !== undefined) {
+          const hit = await bridge.command(
+            "input.clickRef",
+            { tabId, ref: args.ref, button: args.button, clickCount: args.clickCount },
+            exec.signal
+          );
+          return { tabId, ref: args.ref, ...hit };
+        }
         if (args.selector !== undefined) {
           const hit = await bridge.command(
             "input.clickSelector",
@@ -746,7 +884,7 @@ function apply(ctx, config) {
           return { tabId, selector: args.selector, ...hit };
         }
         if (args.x === undefined || args.y === undefined) {
-          throw new Error("chrome_click needs either a selector or both x and y");
+          throw new Error("chrome_click needs a ref, a selector, or both x and y");
         }
         await bridge.command(
           "input.click",
@@ -758,13 +896,17 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_type",
       description:
         "Type text into a Chrome tab with real keyboard input. Pass a selector to focus that element first (clicked with a real mouse event), then the text is inserted; otherwise text goes to the focused element. Uses the agent's last tab or the active tab unless tabId is given.",
       parameters: {
         text: { type: "string", required: true, description: "Text to type." },
+        ref: {
+          type: "string",
+          description: 'Element ref from chrome_snapshot; clicks that element before typing.',
+        },
         selector: {
           type: "string",
           description: "CSS selector of the field to focus before typing.",
@@ -787,7 +929,9 @@ function apply(ctx, config) {
       async execute(args, exec) {
         const tabId = await resolveTabId(exec, args.tabId);
         await gatedTab(exec, tabId);
-        if (args.selector !== undefined) {
+        if (args.ref !== undefined) {
+          await bridge.command("input.clickRef", { tabId, ref: args.ref }, exec.signal);
+        } else if (args.selector !== undefined) {
           await bridge.command("input.clickSelector", { tabId, selector: args.selector }, exec.signal);
         }
         if (args.clear === true) {
@@ -804,7 +948,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_key",
       description:
@@ -840,7 +984,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_screenshot",
       description:
@@ -894,7 +1038,7 @@ function apply(ctx, config) {
     })
   );
 
-  ctx.tools.register(
+  registerTool(
     defineTool({
       name: "chrome_close_tab",
       description:

@@ -79,9 +79,22 @@ const ext = await connectFakeExtension({
     },
     "page.screenshot": () => ({ dataBase64: Buffer.from("fake-png-bytes").toString("base64") }),
     "input.click": ({ x, y }) => ({ x, y }),
-    "input.clickSelector": ({ selector }) => ({ x: 12, y: 34, tag: "BUTTON", text: selector }),
+    "input.clickSelector": ({ selector }) => {
+      if (selector === "#missing") throw new Error("no element matches selector");
+      return { x: 12, y: 34, tag: "BUTTON", text: selector };
+    },
     "input.type": ({ text }) => ({ typed: text.length }),
     "input.key": ({ key, modifiers }) => ({ key, modifiers: modifiers ?? [] }),
+    "input.clickRef": ({ ref }) => ({ ref, x: 20, y: 30, tag: "BUTTON" }),
+    "page.snapshot": () => ({
+      url: "https://snapshot.example/",
+      title: "Snapshot Page",
+      elements: [
+        { ref: "e1", role: "textbox", name: "Search" },
+        { ref: "e2", role: "button", name: "Go" },
+      ],
+      truncated: false,
+    }),
   },
 });
 
@@ -186,6 +199,7 @@ await test("apply registers exactly the ten chrome_* tools", async () => {
   assertEqual(
     [...tools.keys()].sort(),
     [
+      "chrome_act",
       "chrome_click",
       "chrome_close_tab",
       "chrome_eval",
@@ -194,6 +208,7 @@ await test("apply registers exactly the ten chrome_* tools", async () => {
       "chrome_navigate",
       "chrome_read_page",
       "chrome_screenshot",
+      "chrome_snapshot",
       "chrome_status",
       "chrome_tabs",
       "chrome_type",
@@ -413,6 +428,51 @@ await test("chrome_group validates name length and color", async () => {
   );
 });
 
+await test("chrome_snapshot returns compact refs and click accepts them", async () => {
+  const exec = makeExec();
+  await tools.get("chrome_navigate").execute({ url: "https://snapshot.example/" }, exec);
+  const snapshot = await tools.get("chrome_snapshot").execute({}, exec);
+  assertEqual(snapshot.elements.length, 2, "two interactive elements");
+  assertEqual(snapshot.elements[0].ref, "e1", "stable refs");
+  const rendered = tools.get("chrome_snapshot").output.render({}, snapshot)[0].text;
+  assert(rendered.includes("[e1] textbox"), "render shows refs");
+  const clicked = await tools.get("chrome_click").execute({ ref: "e2" }, exec);
+  assertEqual(clicked.ref, "e2", "click by ref");
+  const typed = await tools.get("chrome_type").execute({ ref: "e1", text: "hello" }, exec);
+  assertEqual(typed.typed, 5, "type after focusing a ref");
+});
+
+await test("chrome_act runs several actions in one call", async () => {
+  const exec = makeExec();
+  const result = await tools.get("chrome_act").execute(
+    {
+      actions: [
+        { tool: "chrome_navigate", args: { url: "https://batch.example/" } },
+        { tool: "chrome_snapshot", args: {} },
+        { tool: "chrome_click", args: { ref: "e2" } },
+        { tool: "chrome_type", args: { ref: "e1", text: "hi" } },
+      ],
+    },
+    exec
+  );
+  assertEqual(result.results.length, 4, "all actions ran");
+  assert(result.results.every((entry) => entry.ok), "all actions succeeded");
+  assertEqual(result.stopped, false, "not stopped");
+  const failing = await tools.get("chrome_act").execute(
+    {
+      actions: [
+        { tool: "chrome_navigate", args: { url: "https://batch.example/2" } },
+        { tool: "chrome_click", args: { selector: "#missing" } },
+        { tool: "chrome_key", args: { key: "Enter" } },
+      ],
+    },
+    { ...exec, agent: exec.agent }
+  );
+  assertEqual(failing.results.length, 2, "stops after the failing action");
+  assertEqual(failing.results[1].ok, false, "failure recorded");
+  assertEqual(failing.stopped, true, "reports stopped");
+});
+
 await test("chrome_click / chrome_type / chrome_key drive real input", async () => {
   const exec = makeExec();
   await tools.get("chrome_navigate").execute({ url: "https://site.example/input" }, exec);
@@ -426,7 +486,7 @@ await test("chrome_click / chrome_type / chrome_key drive real input", async () 
   assertEqual(key.modifiers, ["control"], "modifiers forwarded");
   await assertRejects(
     tools.get("chrome_click").execute({ x: 1 }, exec),
-    "needs either a selector or both x and y",
+    "needs a ref, a selector, or both x and y",
     "incomplete coordinates rejected"
   );
 });

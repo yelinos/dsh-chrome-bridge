@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-04
+
+### Added
+
+- `chrome_snapshot`: a compact accessibility-tree (AXTree) snapshot of a page
+  with stable element refs (`e1`, `e2`, ...), typically an order of magnitude
+  fewer tokens than full page text. `chrome_click` and `chrome_type` accept
+  these refs directly.
+- `chrome_act`: run up to 20 ordered browser actions (navigate / click / type /
+  key / snapshot / read / eval) in one tool call, removing a model round trip
+  per step and stopping at the first failure.
+
+### Changed
+
+- Tool descriptions now steer the model toward ref-based interaction and
+  batched execution for faster browser work.
+
 ## [0.4.2] - 2026-11-04
 
 ### Changed

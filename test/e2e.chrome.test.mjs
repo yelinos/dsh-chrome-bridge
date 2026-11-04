@@ -84,7 +84,7 @@ try {
 
   // 2. Command round-trip.
   const ping = await server.command("ext.ping");
-  report(ping.version === "0.4.2", "ext.ping reports the manifest version", JSON.stringify(ping));
+  report(ping.version === "0.5.0", "ext.ping reports the manifest version", JSON.stringify(ping));
 
   // 3. Open a tab in the DSH group and load the local page.
   const opened = await server.command("tabs.open", {
@@ -133,6 +133,18 @@ try {
   const page = await server.command("page.read", { tabId: opened.id });
   report(page.url === "http://127.0.0.1:18800/", "page.read url", page.url);
   report(page.text.includes("Hello from local e2e"), "page.read sees the body text");
+
+  // 4b. Compact accessibility snapshot with refs, then click by ref.
+  const snapshot = await server.command("page.snapshot", { tabId: opened.id, maxElements: 120 });
+  const button = snapshot.elements.find((element) => element.role === "button" && /click/i.test(element.name));
+  report(button !== undefined, "page.snapshot lists the button", JSON.stringify(snapshot.elements.slice(0, 6)));
+  const byRef = await server.command("input.clickRef", { tabId: opened.id, ref: button.ref });
+  report(byRef.ref === button.ref, "input.clickRef resolves the ref", JSON.stringify(byRef));
+  const clickedByRef = await server.command("page.eval", {
+    tabId: opened.id,
+    expression: "document.body.dataset.clicked",
+  });
+  report(clickedByRef.value === "yes", "ref click triggers the button handler", JSON.stringify(clickedByRef));
 
   // 5. Evaluate JavaScript.
   const title = await server.command("page.eval", { tabId: opened.id, expression: "document.title" });
