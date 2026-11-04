@@ -1,6 +1,6 @@
 {
   "name": "dsh-chrome-bridge",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "type": "module",
   "description": "Codex Chrome extension-style browser control for DeepSeek Harness: per-domain approval, one tab group per session, real mouse and keyboard input, and inline screenshots.",

@@ -86,6 +86,10 @@ const ext = await connectFakeExtension({
     "input.type": ({ text }) => ({ typed: text.length }),
     "input.key": ({ key, modifiers }) => ({ key, modifiers: modifiers ?? [] }),
     "input.clickRef": ({ ref }) => ({ ref, x: 20, y: 30, tag: "BUTTON" }),
+    "input.drag": ({ fromRef, toRef, fromX, fromY, toX, toY }) => ({
+      from: { x: fromX ?? 10, y: fromY ?? 20 },
+      to: { x: toX ?? 100, y: toY ?? 120 },
+    }),
     "page.scroll": ({ deltaX, deltaY }) => ({ deltaX, deltaY }),
     "page.scrollRef": ({ ref }) => ({ ref, x: 30, y: 40 }),
     "input.move": ({ ref, x, y }) => ({ ref, x: x ?? 50, y: y ?? 60 }),
@@ -205,6 +209,7 @@ await test("apply registers exactly the ten chrome_* tools", async () => {
       "chrome_act",
       "chrome_click",
       "chrome_close_tab",
+      "chrome_drag",
       "chrome_eval",
       "chrome_group",
       "chrome_key",
@@ -476,6 +481,15 @@ await test("chrome_act runs several actions in one call", async () => {
   assertEqual(failing.results.length, 2, "stops after the failing action");
   assertEqual(failing.results[1].ok, false, "failure recorded");
   assertEqual(failing.stopped, true, "reports stopped");
+});
+
+await test("chrome_drag drags between refs or points", async () => {
+  const exec = makeExec();
+  const dragged = await tools.get("chrome_drag").execute({ fromRef: "e1", toRef: "e2" }, exec);
+  assertEqual(dragged.from.x, 10, "drag start");
+  assertEqual(dragged.to.x, 100, "drag end");
+  const points = await tools.get("chrome_drag").execute({ fromX: 5, fromY: 6, toX: 7, toY: 8 }, exec);
+  assertEqual(points.to.y, 8, "coordinate drag");
 });
 
 await test("chrome_scroll and chrome_move drive the page", async () => {

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-11-04
+
+### Changed
+
+- Mouse layer rewritten to match the Codex browser extension's behavior:
+  - The virtual cursor uses a spring simulation (requestAnimationFrame) and
+    clicks are dispatched only after the pointer visually arrives.
+  - Scrolling uses `Input.synthesizeScrollGesture` (mouse gesture, no fling,
+    speed 8000) instead of a single wheel event.
+  - Element click points come from `DOM.getContentQuads` after
+    `DOM.scrollIntoViewIfNeeded`, matching how Codex resolves targets.
+  - Added `chrome_drag` for real drag-and-drop with an animated pointer path.
+
 ## [0.0.2] - 2026-11-04
 
 ### Changed

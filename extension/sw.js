@@ -244,10 +244,11 @@ async function elementCenter(tabId, selector) {
 
 /** Dispatch one real mouse click at viewport coordinates. */
 async function clickAt(tabId, x, y, button = "left", clickCount = 1) {
-  await showCursor(tabId, x, y, "click");
+  await showCursor(tabId, x, y, "move");
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount });
   await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount });
+  await showCursor(tabId, x, y, "click");
 }
 
 
@@ -300,11 +301,21 @@ async function refCenter(tabId, ref) {
   const map = refMaps.get(tabId);
   const backendNodeId = map?.get(ref);
   if (backendNodeId === undefined) throw new Error(`unknown ref ${JSON.stringify(ref)}; take a fresh chrome_snapshot`);
+  await cdp(tabId, "DOM.scrollIntoViewIfNeeded", { backendNodeId });
+  try {
+    const { quads } = await cdp(tabId, "DOM.getContentQuads", { backendNodeId });
+    if (Array.isArray(quads) && quads.length >= 8) {
+      const [x1, y1, x2, y2, x3, y3, x4, y4] = quads;
+      return { x: (x1 + x2 + x3 + x4) / 4, y: (y1 + y2 + y3 + y4) / 4, tag: "element" };
+    }
+  } catch {
+    /* fall back to the bounding box */
+  }
   const resolved = await cdp(tabId, "DOM.resolveNode", { backendNodeId });
   const box = await cdp(tabId, "Runtime.callFunctionOn", {
     objectId: resolved.object.objectId,
     functionDeclaration:
-      "function(){const r=this.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2, tag:this.tagName};}",
+      "function(){const r=this.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,tag:this.tagName};}",
     returnByValue: true,
   });
   const value = box.result?.value;
@@ -313,36 +324,71 @@ async function refCenter(tabId, ref) {
 }
 
 
-/** Inject or move a visible virtual cursor inside the page. */
+/**
+ * Inject or move a visible virtual cursor inside the page. The cursor uses a
+ * spring simulation (requestAnimationFrame) and resolves once it has arrived,
+ * so clicks are dispatched exactly when the pointer visually lands.
+ */
 async function showCursor(tabId, x, y, kind = "move") {
-  const expression = `(() => {
+  const expression = `(async () => {
     const ID = '__dsh_cursor__';
     let el = document.getElementById(ID);
     if (!el) {
       el = document.createElement('div');
       el.id = ID;
-      el.style.cssText = 'position:fixed;left:0;top:0;width:28px;height:28px;z-index:2147483647;pointer-events:none;transition:transform 120ms ease-out,opacity 200ms;will-change:transform;opacity:0;';
+      el.dataset.browserAgentCursor = 'true';
+      el.style.cssText = 'position:fixed;left:0;top:0;width:28px;height:28px;z-index:2147483647;pointer-events:none;will-change:transform;opacity:0;';
       el.innerHTML =
-        '<span style="position:absolute;left:-6px;top:-6px;width:36px;height:36px;border-radius:50%;background:rgba(37,99,235,.16);border:1.5px solid rgba(37,99,235,.6);"></span>' +
-        '<svg width="26" height="26" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 0 4px rgba(37,99,235,.85)) drop-shadow(0 1px 2px rgba(0,0,0,.45))">' +
+        '<span class="dsh-halo" style="position:absolute;left:-7px;top:-7px;width:38px;height:38px;border-radius:50%;background:rgba(37,99,235,.16);border:1.5px solid rgba(37,99,235,.65);"></span>' +
+        '<svg width="26" height="26" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 0 5px rgba(37,99,235,.9)) drop-shadow(0 1px 2px rgba(0,0,0,.5))">' +
         '<path d="M4 2 L4 19 L9 14 L12 21 L15 20 L12 13 L19 13 Z" fill="#ffffff" stroke="#111827" stroke-width="1.2"/></svg>' +
         '<span class="dsh-r" style="position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;background:rgba(59,130,246,.55);transform:scale(0);opacity:0;"></span>';
       const style = document.createElement('style');
-      style.textContent = '@keyframes dshRipple{0%{transform:scale(.2);opacity:.9}100%{transform:scale(2.6);opacity:0}}.dsh-r.dsh-run{animation:dshRipple .7s ease-out forwards}';
+      style.textContent = '@keyframes dshRipple{0%{transform:scale(.2);opacity:.95}100%{transform:scale(2.6);opacity:0}}.dsh-r.dsh-run{animation:dshRipple .7s ease-out forwards}';
       el.appendChild(style);
       document.documentElement.appendChild(el);
+      const state = { x: window.innerWidth / 2, y: window.innerHeight / 2, vx: 0, vy: 0, tx: window.innerWidth / 2, ty: window.innerHeight / 2, visible: false };
+      let raf = null;
+      let waiters = [];
+      const settle = () => { const list = waiters; waiters = []; for (const resolve of list) resolve(true); };
+      const frame = (now) => {
+        const dt = 1 / 60;
+        const k = 170;
+        const c = 26;
+        state.vx += (state.tx - state.x) * k * dt - state.vx * c * dt;
+        state.vy += (state.ty - state.y) * k * dt - state.vy * c * dt;
+        state.x += state.vx * dt;
+        state.y += state.vy * dt;
+        const dist = Math.hypot(state.tx - state.x, state.ty - state.y);
+        el.style.transform = 'translate3d(' + state.x + 'px,' + state.y + 'px,0)';
+        if (dist < 1 && Math.hypot(state.vx, state.vy) < 20) { state.x = state.tx; state.y = state.ty; el.style.transform = 'translate3d(' + state.x + 'px,' + state.y + 'px,0)'; raf = null; settle(); return; }
+        raf = requestAnimationFrame(frame);
+      };
+      window.__dshCursor = {
+        move(tx, ty) {
+          state.tx = tx; state.ty = ty; el.style.opacity = '1';
+          return new Promise((resolve) => {
+            waiters.push(resolve);
+            if (raf === null) raf = requestAnimationFrame(frame);
+            setTimeout(() => { settle(); }, 700);
+          });
+        },
+        click() {
+          const ripple = el.querySelector('.dsh-r');
+          if (ripple) { ripple.classList.remove('dsh-run'); void ripple.offsetWidth; ripple.classList.add('dsh-run'); }
+        },
+        hideAfter(ms) {
+          clearTimeout(window.__dshCursorTimer);
+          window.__dshCursorTimer = setTimeout(() => { const node = document.getElementById(ID); if (node) node.style.opacity = '0'; }, ms);
+        },
+      };
     }
-    el.style.transform = 'translate3d(${x}px, ${y}px, 0)';
-    el.style.opacity = '1';
-    if ('${kind}' === 'click') {
-      const ripple = el.querySelector('.dsh-r');
-      if (ripple) { ripple.classList.remove('dsh-run'); void ripple.offsetWidth; ripple.classList.add('dsh-run'); }
-    }
-    clearTimeout(window.__dshCursorTimer);
-    window.__dshCursorTimer = setTimeout(() => { const node = document.getElementById(ID); if (node) node.style.opacity = '0'; }, 12000);
+    await window.__dshCursor.move(${x}, ${y});
+    if ('${kind}' === 'click') window.__dshCursor.click();
+    window.__dshCursor.hideAfter(12000);
     return true;
   })()`;
-  await cdp(tabId, "Runtime.evaluate", { expression });
+  await cdp(tabId, "Runtime.evaluate", { expression, awaitPromise: true });
 }
 
 /** Viewport center, for wheel scrolling without an explicit point. */
@@ -461,6 +507,24 @@ async function dispatch(cmd, params) {
       return JSON.parse(result.result.value);
     }
 
+    case "input.drag": {
+      const from = params.fromRef !== undefined ? await refCenter(params.tabId, params.fromRef) : { x: params.fromX, y: params.fromY };
+      const to = params.toRef !== undefined ? await refCenter(params.tabId, params.toRef) : { x: params.toX, y: params.toY };
+      if (typeof from.x !== "number" || typeof to.x !== "number") throw new Error("input.drag needs from/to refs or coordinates");
+      await showCursor(params.tabId, from.x, from.y, "move");
+      await cdp(params.tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x, y: from.y, button: "none", buttons: 0 });
+      await cdp(params.tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x: from.x, y: from.y, button: "left", buttons: 1, clickCount: 1 });
+      const steps = 12;
+      for (let step = 1; step <= steps; step += 1) {
+        const x = from.x + ((to.x - from.x) * step) / steps;
+        const y = from.y + ((to.y - from.y) * step) / steps;
+        await showCursor(params.tabId, x, y, "move");
+        await cdp(params.tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "left", buttons: 1 });
+      }
+      await cdp(params.tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x: to.x, y: to.y, button: "left", buttons: 0, clickCount: 1 });
+      return { from, to };
+    }
+
     case "input.click": {
       await clickAt(params.tabId, params.x, params.y, params.button ?? "left", params.clickCount ?? 1);
       return { x: params.x, y: params.y };
@@ -538,14 +602,24 @@ async function dispatch(cmd, params) {
       const x = typeof params.x === "number" ? params.x : center.x;
       const y = typeof params.y === "number" ? params.y : center.y;
       await showCursor(params.tabId, x, y, "scroll");
-      await cdp(params.tabId, "Input.dispatchMouseEvent", {
-        type: "mouseWheel",
-        x,
-        y,
-        deltaX: params.deltaX ?? 0,
-        deltaY: params.deltaY ?? 0,
-      });
-      return { deltaX: params.deltaX ?? 0, deltaY: params.deltaY ?? 0 };
+      await cdp(params.tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 });
+      const deltaX = params.deltaX ?? 0;
+      const deltaY = params.deltaY ?? 0;
+      try {
+        // Smooth gesture, matching natural mouse-wheel scrolling (Codex-style).
+        await cdp(params.tabId, "Input.synthesizeScrollGesture", {
+          x,
+          y,
+          xDistance: deltaX === 0 ? 0 : -deltaX,
+          yDistance: deltaY === 0 ? 0 : -deltaY,
+          gestureSourceType: "mouse",
+          preventFling: true,
+          speed: 8000,
+        });
+      } catch {
+        await cdp(params.tabId, "Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX, deltaY });
+      }
+      return { deltaX, deltaY };
     }
 
     case "page.scrollRef": {

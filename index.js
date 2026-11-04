@@ -1087,6 +1087,53 @@ function apply(ctx, config) {
 
   registerTool(
     defineTool({
+      name: "chrome_drag",
+      description:
+        "Drag with a real mouse from one element (ref) or point to another, with the virtual cursor animating along the path. Useful for sliders, drag-and-drop lists, and canvas editors.",
+      parameters: {
+        fromRef: { type: "string", description: "Source element ref from chrome_snapshot." },
+        toRef: { type: "string", description: "Target element ref from chrome_snapshot." },
+        fromX: { type: "integer", description: "Source viewport x (when fromRef is omitted)." },
+        fromY: { type: "integer", description: "Source viewport y (when fromRef is omitted)." },
+        toX: { type: "integer", description: "Target viewport x (when toRef is omitted)." },
+        toY: { type: "integer", description: "Target viewport y (when toRef is omitted)." },
+        tabId: {
+          type: "integer",
+          description: "Tab to drag in; omit to use the agent's last tab or the active tab.",
+        },
+      },
+      output: {
+        schema: looseObject,
+        render: (_args, value) => [
+          {
+            type: "text",
+            text: `Dragged from (${Math.round(value.from.x)}, ${Math.round(value.from.y)}) to (${Math.round(value.to.x)}, ${Math.round(value.to.y)}).`,
+          },
+        ],
+      },
+      async execute(args, exec) {
+        const tabId = await resolveTabId(exec, args.tabId);
+        await gatedTab(exec, tabId);
+        const result = await bridge.command(
+          "input.drag",
+          {
+            tabId,
+            ...(args.fromRef !== undefined ? { fromRef: args.fromRef } : {}),
+            ...(args.toRef !== undefined ? { toRef: args.toRef } : {}),
+            ...(args.fromX !== undefined ? { fromX: args.fromX } : {}),
+            ...(args.fromY !== undefined ? { fromY: args.fromY } : {}),
+            ...(args.toX !== undefined ? { toX: args.toX } : {}),
+            ...(args.toY !== undefined ? { toY: args.toY } : {}),
+          },
+          exec.signal
+        );
+        return { tabId, ...result };
+      },
+    })
+  );
+
+  registerTool(
+    defineTool({
       name: "chrome_screenshot",
       description:
         "Capture a PNG screenshot of a Chrome tab; the image is returned inline as a durable attachment (model-visible directly). Uses the agent's last tab or the active tab unless tabId is given.",
