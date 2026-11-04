@@ -140,20 +140,22 @@ function groupOf(tab, groups) {
   return groups.get(tab.groupId) ?? {};
 }
 
-async function addToGroup(tab, title, color) {
+async function addToGroup(tab, title, color, groupId) {
   try {
-    const existing = (await chrome.tabGroups.query({ title })).filter(
-      (group) => group.windowId === tab.windowId
-    );
-    const known = existing.length > 0 ? existing[0].id : undefined;
-    const groupId = await chrome.tabs.group(
-      known === undefined
-        ? { tabIds: [tab.id], createProperties: { windowId: tab.windowId } }
-        : { tabIds: [tab.id], groupId: known }
-    );
-    if (known === undefined) {
-      await chrome.tabGroups.update(groupId, { title, ...(color ? { color } : {}) });
+    // Join the session's known group when it still exists.
+    if (typeof groupId === "number" && groupId >= 0) {
+      try {
+        await chrome.tabs.group({ tabIds: [tab.id], groupId });
+        return;
+      } catch {
+        /* the group is gone: fall through and create a fresh one */
+      }
     }
+    const newGroupId = await chrome.tabs.group({
+      tabIds: [tab.id],
+      createProperties: { windowId: tab.windowId },
+    });
+    await chrome.tabGroups.update(newGroupId, { title, ...(color ? { color } : {}) });
   } catch {
     /* grouping is a convenience; never fail the command for it */
   }
@@ -271,7 +273,7 @@ async function dispatch(cmd, params) {
 
     case "tabs.open": {
       const created = await chrome.tabs.create({ url: params.url, active: params.active !== false });
-      if (params.groupTitle) await addToGroup(created, params.groupTitle, params.groupColor);
+      if (params.groupTitle) await addToGroup(created, params.groupTitle, params.groupColor, params.groupId);
       await waitForLoad(created.id, 15000);
       const [tab, groups] = await Promise.all([chrome.tabs.get(created.id), groupInfo()]);
       return tabInfo(tab, groupOf(tab, groups));

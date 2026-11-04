@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-04
+
+### Fixed
+
+- Sessions now join their own tab group by group id instead of matching the
+  group title, so two sessions opening pages with the same title never merge
+  into one group.
+
 ## [0.4.0] - 2026-11-04
 
 ### Added

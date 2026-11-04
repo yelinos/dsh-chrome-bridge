@@ -75,6 +75,8 @@ function apply(ctx, config) {
   const lastTab = new Map();
   /** session → explicit, short purpose name for its Chrome tab group. */
   const groupNames = new Map();
+  /** session → Chrome tab-group id, so sessions never merge by title collision. */
+  const sessionGroupIds = new Map();
 
   /** Live read of the volatile allowedDomains list (plain arrays also work). */
   function allowedDomains() {
@@ -269,6 +271,8 @@ function apply(ctx, config) {
     const tabs = sessionTabs.get(session);
     lastTab.delete(session);
     sessionTabs.delete(session);
+    sessionGroupIds.delete(session);
+    groupNames.delete(session);
     if (tabs === undefined) return;
     for (const tabId of tabs.keys()) await closeTabQuietly(tabId);
   }
@@ -518,6 +522,8 @@ function apply(ctx, config) {
           }
           if (info === undefined) {
             const explicitName = sessionGroupName(exec);
+            const session = sessionOf(exec);
+            const knownGroupId = session === null ? undefined : sessionGroupIds.get(session);
             info = await bridge.command(
               "tabs.open",
               {
@@ -525,9 +531,13 @@ function apply(ctx, config) {
                 active: args.background !== true,
                 groupTitle: explicitName ?? config.tabGroupTitle,
                 groupColor: sessionGroupColor(exec),
+                ...(knownGroupId !== undefined ? { groupId: knownGroupId } : {}),
               },
               exec.signal
             );
+            if (session !== null && Number.isInteger(info.groupId) && info.groupId >= 0) {
+              sessionGroupIds.set(session, info.groupId);
+            }
             if (explicitName === null) {
               const autoName = autoGroupName(info);
               if (autoName.length > 0 && autoName !== config.tabGroupTitle) {

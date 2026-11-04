@@ -87,7 +87,7 @@ Ask the agent to call `chrome_status`; it should report:
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.4.0
+- extension: DSH Chrome Bridge 0.4.1
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
 
