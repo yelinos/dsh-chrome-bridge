@@ -434,7 +434,10 @@ function apply(ctx, config) {
               value.tabs.length === 0
                 ? "No tabs found."
                 : value.tabs
-                    .map((tab) => `${tab.active ? "*" : " "} [${tab.id}] (${tab.groupTitle}) ${tab.title} — ${tab.url}`)
+                    .map(
+                      (tab) =>
+                        `${tab.active ? "*" : " "} [${tab.id}] (${tab.groupTitle}${tab.groupColor ? ` · ${tab.groupColor}` : ""}${tab.session ? " · agent" : ""}) ${tab.title} — ${tab.url}`
+                    )
                     .join("\n"),
           },
         ],
@@ -490,7 +493,7 @@ function apply(ctx, config) {
           {
             type: "text",
             text:
-              `${value.reused ? "Reused" : "Opened"} tab [${value.tabId}] in ${value.group}: ${value.title} — ${value.url}` +
+              `${value.reused ? "Reused" : "Opened"} tab [${value.tabId}] in ${value.group}${value.groupColor ? ` [${value.groupColor}]` : ""}: ${value.title} — ${value.url}` +
               (value.closedTabs.length > 0 ? ` (closed least-recently-used: ${value.closedTabs.join(", ")})` : ""),
           },
         ],
