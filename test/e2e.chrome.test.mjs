@@ -106,6 +106,29 @@ try {
     JSON.stringify(renamed)
   );
 
+  // 3c. Two sessions never merge: a second tab without groupId gets its own group.
+  const second = await server.command("tabs.open", {
+    url: "http://127.0.0.1:18800/?second=1",
+    active: false,
+    groupTitle: "Second Group",
+    groupColor: "cyan",
+  });
+  report(
+    second.groupId !== opened.groupId,
+    "tabs.open without groupId creates a separate group",
+    `${opened.groupId} vs ${second.groupId}`
+  );
+  const joined = await server.command("tabs.open", {
+    url: "http://127.0.0.1:18800/?joined=1",
+    active: false,
+    groupTitle: "Second Group",
+    groupColor: "cyan",
+    groupId: second.groupId,
+  });
+  report(joined.groupId === second.groupId, "tabs.open joins the group id it is given", String(joined.groupId));
+  await server.command("tabs.close", { tabId: joined.id, groupTitle: "Second Group" });
+  await server.command("tabs.close", { tabId: second.id, groupTitle: "Second Group" });
+
   // 4. Read the page through CDP.
   const page = await server.command("page.read", { tabId: opened.id });
   report(page.url === "http://127.0.0.1:18800/", "page.read url", page.url);
