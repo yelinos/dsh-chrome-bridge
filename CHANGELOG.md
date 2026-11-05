@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Extension icons (16/32/48/128 px) derived from `icon.svg`, declared in the
+  manifest and used by the toolbar button and notifications, so the package
+  passes the Microsoft Edge Add-ons / Chrome Web Store icon checks.
+- `npm run pack:extension`: builds `dist/dsh-chrome-bridge-extension-<version>.zip`
+  with the files relative to the archive root, ready for store upload.
+- `docs/privacy.html`: store privacy policy covering data flow, permissions,
+  local storage and user controls.
+
 ## [0.1.1] - 2026-11-05
 
 ### Added

@@ -196,6 +196,7 @@ npm run parity:ledger   # regenerate official capability ledger
 npm run parity:baseline # archive git/version/fingerprints
 npm run test:unit  # protocol, tools, service lifecycle, client registration
 npm run test:e2e   # real Chrome for Testing end-to-end (needs .tools/chrome-linux64/chrome)
+npm run pack:extension # build the store-ready dist/dsh-chrome-bridge-extension-<version>.zip
 ```
 
 The unit tests resolve `@deepseek-ai/*` packages from a DSH installation; when

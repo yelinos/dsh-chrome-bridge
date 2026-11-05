@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy — DSH Chrome Bridge</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0 auto;
+        max-width: 760px;
+        padding: 32px 20px 64px;
+        font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #1f2328;
+        background: #ffffff;
+      }
+      h1 { font-size: 28px; margin: 0 0 4px; }
+      h2 { font-size: 19px; margin: 32px 0 8px; }
+      .meta { color: #57606a; font-size: 14px; margin-bottom: 24px; }
+      table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 15px; }
+      th, td { border: 1px solid #d0d7de; padding: 8px 10px; text-align: left; vertical-align: top; }
+      th { background: #f6f8fa; }
+      code { background: #f6f8fa; padding: 1px 5px; border-radius: 4px; font-size: 14px; }
+      ul { padding-left: 22px; }
+      a { color: #0969da; }
+      @media (prefers-color-scheme: dark) {
+        body { color: #e6edf3; background: #0d1117; }
+        .meta { color: #8b949e; }
+        th, td { border-color: #30363d; }
+        th, code { background: #161b22; }
+        a { color: #58a6ff; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DSH Chrome Bridge — Privacy policy</h1>
+    <p class="meta">Extension version 0.1.1 · Last updated 2026-11-05</p>
+
+    <p>
+      DSH Chrome Bridge is a browser extension that lets a locally running
+      <strong>DeepSeek Harness (DSH)</strong> agent observe and operate the
+      browser tabs you approve. The extension has no account system, no
+      analytics and no server of its own beyond a loopback WebSocket.
+    </p>
+
+    <h2>Who processes your data</h2>
+    <ul>
+      <li>The <strong>extension</strong> runs inside your browser and talks only to a
+        DSH Host listening on <code>127.0.0.1</code> (default port <code>8765</code>).</li>
+      <li>The <strong>DSH Host</strong> is software installed on your own machine. It forwards
+        the agent's commands to the extension and returns observations to the model
+        provider configured in your DSH installation.</li>
+      <li>The <strong>model provider</strong> (for example DeepSeek) receives the page text,
+        accessibility snapshots, screenshots and other observations that the agent
+        asks for — exactly as if a person had pasted that content into a chat.
+        That provider's own terms and privacy policy apply to that content.</li>
+    </ul>
+    <p>The extension itself never contacts a remote server and never collects data for the developer.</p>
+
+    <h2>What the extension can access</h2>
+    <p>
+      To automate a tab, an agent must first be granted access. The Host keeps a
+      per-domain allowlist; a request from any other domain (or on the
+      <code>blockedDomains</code> list) is refused. Actions are limited to tabs inside the
+      DSH tab group for the current session.
+    </p>
+    <table>
+      <thead><tr><th>Permission</th><th>Why it is needed</th></tr></thead>
+      <tbody>
+        <tr><td><code>tabs</code>, <code>tabGroups</code>, <code>webNavigation</code></td><td>Find the tab the agent is working on, group it per session, and know when a page loads.</td></tr>
+        <tr><td><code>debugger</code></td><td>Send real mouse/keyboard input and read the accessibility tree, screenshots and network state through the Chrome DevTools Protocol.</td></tr>
+        <tr><td><code>scripting</code>, host access to <code>http(s)://*/*</code></td><td>Run the in-page cursor overlay script and evaluate page-scoped helpers inside approved tabs only.</td></tr>
+        <tr><td><code>downloads</code>, <code>bookmarks</code>, <code>history</code>, <code>sessions</code>, <code>topSites</code></td><td>Optional agent tools (download a file, list bookmarks/history, list recently closed tabs). Each is only invoked when the agent asks for it.</td></tr>
+        <tr><td><code>notifications</code>, <code>contextMenus</code>, <code>sidePanel</code>, <code>storage</code>, <code>alarms</code>, <code>favicon</code></td><td>Show connection status, the side panel, notifications, and keep the bridge reconnecting.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>What is stored, and where</h2>
+    <ul>
+      <li><strong>Locally in <code>chrome.storage.local</code>:</strong> the bridge port, an optional
+        auth token you set in the popup, and a random per-install browser id. These stay on your device.</li>
+      <li><strong>Page content</strong> (text, accessibility snapshots, screenshots, selected text) is
+        handled in memory and sent to the Host only when an agent tool asks for it.
+        The extension does not write page content to persistent storage.</li>
+      <li><strong>Screenshots</strong> that cannot be returned inline may be saved by the
+        Host as files in the DSH workspace on your disk.</li>
+      <li>Nothing is transmitted to the developer, to advertisers, or to a third-party analytics service.</li>
+    </ul>
+
+    <h2>Credentials</h2>
+    <p>
+      The extension does not read passwords, cookies or OAuth tokens, and never types
+      credentials on your behalf. Sites that require a password, one-time code or
+      CAPTCHA are handed back to you through a visible "user takeover" step; you type
+      those values yourself.
+    </p>
+
+    <h2>Your controls</h2>
+    <ul>
+      <li>Close the DSH Host, or disable/remove the extension — the agent can no longer connect or act.</li>
+      <li>Revoke access for any domain by removing it from the Host's allowlist, or add it to <code>blockedDomains</code>.</li>
+      <li>Clear the extension's data from <code>chrome://extensions</code> (the popup settings and browser id are removed).</li>
+      <li>Close a DSH tab group: tabs you own are never touched outside it.</li>
+    </ul>
+
+    <h2>Children</h2>
+    <p>The extension is a developer tool and is not directed at children under 13.</p>
+
+    <h2>Changes</h2>
+    <p>
+      Material changes to this policy will be published in this file and noted in
+      <a href="https://github.com/yelinos/dsh-chrome-bridge/blob/main/CHANGELOG.md">CHANGELOG.md</a>.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions: open an issue at
+      <a href="https://github.com/yelinos/dsh-chrome-bridge/issues">github.com/yelinos/dsh-chrome-bridge/issues</a>
+      or email <a href="mailto:yelinos@users.noreply.github.com">yelinos@users.noreply.github.com</a>.
+    </p>
+  </body>
+</html>

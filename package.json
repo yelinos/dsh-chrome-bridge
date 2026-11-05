@@ -32,6 +32,7 @@
   },
   "scripts": {
     "check": "node scripts/check.mjs",
+    "pack:extension": "node scripts/pack-extension.mjs",
     "parity:ledger": "node scripts/parity-ledger.mjs",
     "test:unit": "node test/protocol.test.mjs && node test/tools.test.mjs && node test/browsers.test.mjs && node test/service.test.mjs && node test/client.test.mjs",
     "test:e2e": "node test/e2e.chrome.test.mjs",
@@ -60,6 +61,10 @@
     "locale/zh.json",
     "icon.svg",
     "extension/manifest.json",
+    "extension/icons/icon16.png",
+    "extension/icons/icon32.png",
+    "extension/icons/icon48.png",
+    "extension/icons/icon128.png",
     "extension/images/cursor-chat.png",
     "extension/sw.js",
     "extension/cursor.js",

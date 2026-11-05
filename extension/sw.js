@@ -1977,7 +1977,7 @@ async function dispatch(cmd, params) {
     case "notification.create": {
       const id = await chrome.notifications.create({
         type: "basic",
-        iconUrl: chrome.runtime.getURL("images/cursor-chat.png"),
+        iconUrl: chrome.runtime.getURL("icons/icon128.png"),
         title: String(params.title ?? "DSH Chrome Bridge"),
         message: String(params.message ?? ""),
         priority: params.priority === "high" ? 2 : 0,
@@ -2662,7 +2662,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (tab?.id !== undefined) {
     chrome.notifications.create({
       type: "basic",
-      iconUrl: chrome.runtime.getURL("images/cursor-chat.png"),
+      iconUrl: chrome.runtime.getURL("icons/icon128.png"),
       title: "DSH Chrome Bridge",
       message: `Context action on ${info.pageUrl ?? "this page"}. Ask the agent in DSH to continue.`,
     }).catch(() => {});

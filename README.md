@@ -179,6 +179,7 @@ npm run parity:ledger   # 重新生成官方能力台账
 npm run parity:baseline # 留档 Git/版本/指纹基线
 npm run test:unit  # 协议层、工具层、Service 生命周期、Client 注册
 npm run test:e2e   # 真实 Chrome for Testing 端到端（需 .tools/chrome-linux64/chrome）
+npm run pack:extension # 生成商店可直接上传的 dist/dsh-chrome-bridge-extension-<版本>.zip
 ```
 
 单元测试会从 DSH 安装目录解析 `@deepseek-ai/*` 包；不在 DSH 环境时请先让
