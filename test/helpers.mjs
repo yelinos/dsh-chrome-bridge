@@ -5,7 +5,7 @@
 import { WebSocket } from "ws";
 
 /** @returns {Promise<import("ws").WebSocket>} */
-export function connectFakeExtension({ port, token = "", handlers = {}, noReply = [], onHello } = {}) {
+export function connectFakeExtension({ port, token = "", handlers = {}, noReply = [], onHello, browserId, browserName } = {}) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const state = { asked: 0, askedDomains: [] };
@@ -25,6 +25,8 @@ export function connectFakeExtension({ port, token = "", handlers = {}, noReply 
           name: "Fake Extension",
           version: "test",
           userAgent: "fake",
+          ...(browserId ? { browserId } : {}),
+          ...(browserName ? { browserName } : {}),
           ...(token ? { token } : {}),
         })
       );

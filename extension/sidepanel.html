@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DSH Chrome Bridge</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font: 13px/1.5 system-ui, sans-serif; margin: 0; padding: 14px; }
+      h1 { font-size: 15px; margin: 0 0 10px; }
+      h2 { font-size: 12px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; }
+      .row { margin-bottom: 8px; }
+      .label { color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+      code, .url { font-size: 11px; word-break: break-all; }
+      .state { font-weight: 600; }
+      .on { color: #1a73e8; }
+      .off { color: #9aa0a6; }
+      .card { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; padding: 8px; }
+      .title { font-weight: 600; }
+      .selection { white-space: pre-wrap; max-height: 120px; overflow: auto; font-size: 12px; }
+      ul { padding-left: 18px; margin: 6px 0; }
+      button { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); background: transparent; cursor: pointer; }
+      .muted { color: #6b7280; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>DSH Chrome Bridge</h1>
+    <div class="row"><span class="label">Status</span><br /><span id="state" class="state off">Checking…</span></div>
+    <div class="row"><span class="label">Browser</span><br /><span id="browser">—</span></div>
+    <div class="row"><span class="label">Endpoint</span><br /><code id="endpoint">—</code></div>
+    <div class="row"><span class="label">Extension directory</span><br /><code id="dir">—</code></div>
+    <div class="row"><span class="label">Connected browsers</span><ul id="browsers"></ul></div>
+
+    <h2>Current page</h2>
+    <div class="card">
+      <div class="title" id="page-title">—</div>
+      <div class="url" id="page-url">—</div>
+      <div class="row" style="margin-top:8px"><button id="copy-mention">Copy tab mention</button></div>
+    </div>
+
+    <h2>Selected text</h2>
+    <div class="card selection" id="selection">Select text on the page to include it in a DSH request.</div>
+
+    <h2>Open tabs</h2>
+    <ul id="tabs"></ul>
+    <p class="muted">Domain approvals and chat happen in the DSH conversation. Use the copy button to reference this tab with an explicit tab mention.</p>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

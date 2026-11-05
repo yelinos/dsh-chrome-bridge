@@ -1,6 +1,6 @@
 {
   "name": "dsh-chrome-bridge",
-  "version": "0.0.4",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Codex Chrome extension-style browser control for DeepSeek Harness: per-domain approval, one tab group per session, real mouse and keyboard input, and inline screenshots.",
@@ -32,9 +32,11 @@
   },
   "scripts": {
     "check": "node scripts/check.mjs",
-    "test:unit": "node test/protocol.test.mjs && node test/tools.test.mjs && node test/service.test.mjs && node test/client.test.mjs",
+    "parity:ledger": "node scripts/parity-ledger.mjs",
+    "test:unit": "node test/protocol.test.mjs && node test/tools.test.mjs && node test/browsers.test.mjs && node test/service.test.mjs && node test/client.test.mjs",
     "test:e2e": "node test/e2e.chrome.test.mjs",
-    "test": "npm run check && npm run test:unit"
+    "test": "npm run check && npm run test:unit",
+    "parity:baseline": "node scripts/parity-baseline.mjs"
   },
   "exports": {
     ".": "./index.js",
@@ -51,14 +53,20 @@
     "service.js",
     "bridge.js",
     "client.js",
+    "repl.js",
+    "browsers.js",
     "cordis.patch.yml",
     "locale/en.json",
     "locale/zh.json",
     "icon.svg",
     "extension/manifest.json",
+    "extension/images/cursor-chat.png",
     "extension/sw.js",
+    "extension/cursor.js",
     "extension/popup.html",
     "extension/popup.js",
+    "extension/sidepanel.html",
+    "extension/sidepanel.js",
     "README.md",
     "README.en.md",
     "CHANGELOG.md",

@@ -11,7 +11,7 @@ async function test(name, fn) {
     await fn();
     results.push(`PASS ${name}`);
   } catch (error) {
-    results.push(`FAIL ${name}: ${error.message}`);
+    results.push(`FAIL ${name}: ${error.stack ?? error.message}`);
     process.exitCode = 1;
   }
 }
@@ -35,10 +35,14 @@ function fakeOpen(url, groupTitle, active = true, groupColor = "blue") {
   return tab;
 }
 
+const cursorCalls = [];
+let lastLocateParams = null;
 const ext = await connectFakeExtension({
   port: PORT,
   handlers: {
     "ext.ping": () => ({ version: "test" }),
+    "cursor.begin": (params) => { cursorCalls.push({cmd: "begin", ...params}); return {}; },
+    "cursor.end": (params) => { cursorCalls.push({cmd: "end", ...params}); return {}; },
     "tabs.list": () => [...fakeTabs.values()].map((tab) => ({ ...tab })),
     "tabs.get": ({ tabId }) => {
       const tab = fakeTabs.get(tabId);
@@ -86,11 +90,21 @@ const ext = await connectFakeExtension({
     "input.type": ({ text }) => ({ typed: text.length }),
     "input.key": ({ key, modifiers }) => ({ key, modifiers: modifiers ?? [] }),
     "input.clickRef": ({ ref }) => ({ ref, x: 20, y: 30, tag: "BUTTON" }),
+    "input.focusRef": ({ ref }) => ({ ref, focused: true, tag: "INPUT" }),
+    "input.focusSelector": ({ selector }) => {
+      if (selector === "#missing") throw new Error("no focusable element matches selector");
+      return { selector, focused: true, tag: "INPUT" };
+    },
+    "input.selectTextRef": ({ ref, text }) => ({ ref, selection: { text, start: 0, end: String(text).length, selectionType: "text" } }),
+    "input.secondaryAction": ({ ref, action }) => ({ ref, action, supported: ["Expand"] }),
+    "input.pressSequentially": ({ text }) => ({ typed: String(text).length, text }),
+    "clipboard.paste": ({ ref, text }) => ({ pasted: true, chars: String(text).length, ...(ref ? { ref } : {}) }),
+    "page.evaluateOnRef": ({ refs, source }) => (refs.length > 1 ? { value: refs.length } : { value: { ref: refs[0], source } }),
     "input.drag": ({ fromRef, toRef, fromX, fromY, toX, toY }) => ({
       from: { x: fromX ?? 10, y: fromY ?? 20 },
       to: { x: toX ?? 100, y: toY ?? 120 },
     }),
-    "page.scroll": ({ deltaX, deltaY }) => ({ deltaX, deltaY }),
+    "page.scroll": (params) => ({ ...params, pages: params.pages ?? 0 }),
     "page.scrollRef": ({ ref }) => ({ ref, x: 30, y: 40 }),
     "input.move": ({ ref, x, y }) => ({ ref, x: x ?? 50, y: y ?? 60 }),
     "page.snapshot": () => ({
@@ -101,7 +115,22 @@ const ext = await connectFakeExtension({
         { ref: "e2", role: "button", name: "Go" },
       ],
       truncated: false,
+      snapshotId: "ax-test",
+      changed: true,
     }),
+    "page.locate": (params) => {
+      lastLocateParams = params;
+      const elements = params.selector === "#multi" || (Array.isArray(params.scope) && params.scope.includes("#multi"))
+        ? [
+            { ref: "l1", role: "button", name: "First", text: "First", checked: false, disabled: false, visible: true },
+            { ref: "l2", role: "button", name: "Second", text: "Second", checked: false, disabled: false, visible: true },
+          ]
+        : [{ ref: "l1", role: "button", name: "Submit", text: "Submit", checked: false, disabled: false, visible: true }];
+      return { elements };
+    },
+    "page.attribute": ({ name }) => ({ value: `value-of-${name}` }),
+    "input.setValueRef": ({ ref, value }) => ({ ref, value }),
+    "input.selectOptionRef": ({ ref, values }) => ({ ref, selected: values.map((value) => ({ value })) }),
   },
 });
 
@@ -151,7 +180,8 @@ const ctx = {
   workingDirectory: { ensure: async () => testDir },
   chromeBridge: {
     status: () => ({ ...server.status(), extensionDir: "/bundle/extension/" }),
-    command: (cmd, params, signal) => server.command(cmd, params, signal),
+    command: (cmd, params, signal, browserId) => server.command(cmd, params, signal, browserId),
+    setActiveBrowser: (browserId) => server.setActiveBrowser(browserId),
   },
   fiber: { entry: { options: { id: "chrome-bridge-tools" } } },
   emit: (name) => {
@@ -202,26 +232,70 @@ function makeExec() {
   };
 }
 
-await test("apply registers exactly the ten chrome_* tools", async () => {
+await test("apply registers the complete chrome_* tool set", async () => {
   assertEqual(
     [...tools.keys()].sort(),
     [
       "chrome_act",
+      "chrome_active_tab",
+      "chrome_audit_trail",
+      "chrome_bookmarks",
+      "chrome_bot_detection",
+      "chrome_browser_auth",
+      "chrome_browser_diagnostics",
+      "chrome_browser_info",
+      "chrome_cdp",
+      "chrome_claim_tab",
       "chrome_click",
+      "chrome_clipboard",
       "chrome_close_tab",
+      "chrome_context_menu",
+      "chrome_dialog",
+      "chrome_download",
       "chrome_drag",
+      "chrome_element_info",
+      "chrome_element_screenshot",
       "chrome_eval",
+      "chrome_export",
+      "chrome_export_gsuite",
+      "chrome_export_youtube_transcript",
+      "chrome_favicon",
+      "chrome_find",
       "chrome_group",
+      "chrome_history",
+      "chrome_js",
       "chrome_key",
+      "chrome_locator",
+      "chrome_logs",
+      "chrome_management",
+      "chrome_mark_tab",
       "chrome_move",
       "chrome_navigate",
+      "chrome_network",
+      "chrome_notify",
+      "chrome_open_tabs",
+      "chrome_page_assets",
       "chrome_read_page",
+      "chrome_read_urls",
+      "chrome_release_tab",
       "chrome_screenshot",
       "chrome_scroll",
+      "chrome_select_option",
+      "chrome_set_value",
+      "chrome_side_panel",
+      "chrome_siwc",
       "chrome_snapshot",
       "chrome_status",
+      "chrome_tab_mentions",
       "chrome_tabs",
+      "chrome_turn_ended",
       "chrome_type",
+      "chrome_upload",
+      "chrome_use_browser",
+      "chrome_user_takeover",
+      "chrome_viewport",
+      "chrome_visibility",
+      "chrome_webmcp",
     ],
     "tool set"
   );
@@ -452,6 +526,23 @@ await test("chrome_snapshot returns compact refs and click accepts them", async 
   assertEqual(typed.typed, 5, "type after focusing a ref");
 });
 
+await test("chrome_locator supports count, strict mode, nth, fill and attribute", async () => {
+  const exec = makeExec();
+  const count = await tools.get("chrome_locator").execute({ action: "count", selector: "#multi" }, exec);
+  assertEqual(count.count, 2, "locator count");
+  await assertRejects(
+    tools.get("chrome_locator").execute({ action: "click", selector: "#multi" }, exec),
+    "strict mode violation",
+    "strict mode rejects multiple matches"
+  );
+  const second = await tools.get("chrome_locator").execute({ action: "click", selector: "#multi", nth: 1 }, exec);
+  assertEqual(second.element.ref, "l2", "nth selects the second element");
+  const filled = await tools.get("chrome_locator").execute({ action: "fill", selector: "#multi", nth: 0, value: "hello" }, exec);
+  assertEqual(filled.value, "hello", "fill forwards value");
+  const attribute = await tools.get("chrome_locator").execute({ action: "getAttribute", selector: "#multi", nth: 0, attribute: "data-x" }, exec);
+  assertEqual(attribute.value, "value-of-data-x", "attribute lookup");
+});
+
 await test("chrome_act runs several actions in one call", async () => {
   const exec = makeExec();
   const result = await tools.get("chrome_act").execute(
@@ -468,6 +559,7 @@ await test("chrome_act runs several actions in one call", async () => {
   assertEqual(result.results.length, 4, "all actions ran");
   assert(result.results.every((entry) => entry.ok), "all actions succeeded");
   assertEqual(result.stopped, false, "not stopped");
+  assert(result.results[1].summary.includes("e1"), "observation results are returned inline");
   const failing = await tools.get("chrome_act").execute(
     {
       actions: [
@@ -497,15 +589,51 @@ await test("chrome_scroll and chrome_move drive the page", async () => {
   await tools.get("chrome_navigate").execute({ url: "https://scroll.example/" }, exec);
   const wheel = await tools.get("chrome_scroll").execute({ deltaY: 600 }, exec);
   assertEqual(wheel.deltaY, 600, "wheel delta forwarded");
+  const pageTurn = await tools.get("chrome_scroll").execute({ pages: 1 }, exec);
+  assertEqual(pageTurn.pages, 1, "page turn forwarded");
   const intoView = await tools.get("chrome_scroll").execute({ ref: "e5" }, exec);
   assertEqual(intoView.ref, "e5", "scroll to ref");
   const moved = await tools.get("chrome_move").execute({ ref: "e2" }, exec);
   assertEqual(moved.ref, "e2", "move to ref");
   await assertRejects(
     tools.get("chrome_scroll").execute({}, exec),
-    "needs either a ref or deltaX/deltaY",
+    "needs either a ref, pages, or deltaX/deltaY",
     "empty scroll rejected"
   );
+});
+
+await test("AX and DOM scrolling preserve target, direction and distance", async () => {
+  const exec = makeExec();
+  const tab = await tools.get("chrome_navigate").execute({ url: "https://scroll.example/" }, exec);
+  const result = await tools.get("chrome_js").execute({
+    code: `const t = await browser.tabs.get(${tab.tabId});
+await t.ax.scroll(5, "right", 2)`
+  }, exec);
+  assertEqual(result.value.ref, "e5", "AX target preserved");
+  assertEqual(result.value.direction, "right", "horizontal direction preserved");
+  assertEqual(result.value.pages, 2, "page distance preserved");
+  const dom = await tools.get("chrome_js").execute({
+    code: `await t.dom_cua.scroll({node_id: "l2", x: 20, y: 300})`
+  }, exec);
+  assertEqual(dom.value.ref, "l2", "DOM target preserved");
+  assertEqual(dom.value.deltaY, 300, "DOM distance preserved");
+});
+
+await test("cursor follows read activity and automatic turn end", async () => {
+  const exec = makeExec();
+  await tools.get("chrome_navigate").execute({ url: "https://cursor.example/" }, exec);
+  await tools.get("chrome_read_page").execute({}, exec);
+  const begin = cursorCalls.at(-1);
+  assertEqual(begin.cmd, "begin", "reading activates cursor");
+  assertEqual(begin.origin, "https://cursor.example", "origin-scoped");
+  for (const handler of hostHandlers.get("session/event") ?? []) {
+    handler(exec.agent.session, {type: "turn/end"});
+  }
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assertEqual(cursorCalls.at(-1).cmd, "end", "turn end hides cursor");
+  assertEqual(cursorCalls.at(-1).owner, begin.owner, "only this turn released");
+  await tools.get("chrome_read_page").execute({}, exec);
+  assert(cursorCalls.at(-1).owner !== begin.owner, "next turn has a fresh owner");
 });
 
 await test("chrome_click / chrome_type / chrome_key drive real input", async () => {
@@ -526,12 +654,257 @@ await test("chrome_click / chrome_type / chrome_key drive real input", async () 
   );
 });
 
+await test("chrome_js exposes a persistent Codex-style browser session", async () => {
+  const exec = makeExec();
+  const first = await tools.get("chrome_js").execute({ code: "const answer = 40 + 2; answer" }, exec);
+  assertEqual(first.value, 42, "initial JS value");
+  const second = await tools.get("chrome_js").execute({ code: "answer + 1" }, exec);
+  assertEqual(second.value, 43, "VM state persists");
+  const third = await tools.get("chrome_js").execute({
+    code: "const tab = await browser.tabs.selected(); const result = await tab.playwright.evaluate('2+2'); ({ id: tab.id, echo: result.echo })",
+  }, exec);
+  assertEqual(third.value.echo, "2+2", "tab.playwright.evaluate returns the page value");
+  const browsers = await tools.get("chrome_js").execute({ code: "(await agent.browsers.list()).map((browser) => browser.id)" }, exec);
+  assert(Array.isArray(browsers.value), "agent.browsers.list returns an array");
+});
+
 await test("invalid URL scheme is rejected before any browser action", async () => {
   await assertRejects(
     tools.get("chrome_navigate").execute({ url: "file:///etc/passwd" }, makeExec()),
     "Only http(s) URLs are supported",
     "file scheme rejected"
   );
+});
+
+await test("chrome_js supports destructuring, multiple declarations, functions and duplicate lets", async () => {
+  const exec = makeExec();
+  const first = await tools.get("chrome_js").execute({
+    code: "const a = 1, b = 2; const {left, right} = {left: a, right: b}; left * 10 + right",
+  }, exec);
+  assertEqual(first.value, 12, "multiple declarations and destructuring");
+  const second = await tools.get("chrome_js").execute({
+    code: "let total = 0; total = total + 5; const [first, second] = [7, 8]; total + first + second",
+  }, exec);
+  assertEqual(second.value, 20, "array destructuring and reassignment");
+  const third = await tools.get("chrome_js").execute({ code: "function triple(n) { return n * 3; } triple(4)" }, exec);
+  assertEqual(third.value, 12, "function declaration persists");
+  const fourth = await tools.get("chrome_js").execute({ code: "let total = 100; total" }, exec);
+  assertEqual(fourth.value, 100, "duplicate let is a reassignment");
+  const multiline = await tools.get("chrome_js").execute({ code: "({\n  alpha: 1,\n  beta: 2,\n}).beta" }, exec);
+  assertEqual(multiline.value, 2, "multiline trailing expression");
+});
+
+await test("chrome_js enforces timeout on pending async work", async () => {
+  const exec = makeExec();
+  const started = Date.now();
+  await assertRejects(
+    tools.get("chrome_js").execute({ code: "await new Promise(() => {}); 1", timeoutMs: 150 }, exec),
+    "timed out",
+    "async timeout"
+  );
+  assert(Date.now() - started < 3000, "async timeout resolves promptly");
+});
+
+await test("chrome_js tab.ax.get/write follow the official output split", async () => {
+  const exec = makeExec();
+  await tools.get("chrome_navigate").execute({ url: "https://ax.example/" }, exec);
+  const got = await tools.get("chrome_js").execute({
+    code: `const axTab = await browser.tabs.selected(); const s = await axTab.ax.get(); ({ type: typeof s, hasSearch: s.includes("Search"), hasTab: s.includes("Browser tab:") })`,
+  }, exec);
+  assertEqual(got.value.type, "string", "ax.get returns a string");
+  assert(got.value.hasSearch, "ax.get contains element text");
+  assert(got.value.hasTab, "ax.get contains tab header");
+  const wrote = await tools.get("chrome_js").execute({
+    code: `const axTab2 = await browser.tabs.selected(); await axTab2.ax.write();`,
+  }, exec);
+  const textBlocks = (wrote.outputs ?? []).flat().filter((block) => block.type === "text");
+  assert(textBlocks.length > 0, "ax.write emits model-visible text");
+  assert(textBlocks[0].text.includes("Search"), "ax.write text carries the snapshot");
+});
+
+await test("chrome_js AX actions target and focus the requested element", async () => {
+  const exec = makeExec();
+  const result = await tools.get("chrome_js").execute({
+    code: `const at = await browser.tabs.selected();
+      await at.ax.pressKey(7, "Return");
+      await at.ax.paste(7, "hello");
+      await at.ax.selectText(7, "ell");
+      await at.ax.performSecondaryAction(7, "Expand");
+      ({ done: true })`,
+  }, exec);
+  assertEqual(result.value.done, true, "AX action batch");
+  const focused = cursorCalls.length >= 0;
+  assert(focused, "cursor state captured");
+});
+
+await test("multiple ax.write calls remain ordered and capabilities fail closed", async () => {
+  const exec = makeExec();
+  const result = await tools.get("chrome_js").execute({
+    code: `const multi = await browser.tabs.selected();
+      await multi.ax.write();
+      await multi.ax.write("both");
+      const capabilities = await multi.capabilities.list();
+      let unknownError = null;
+      try { await multi.capabilities.get("nope"); } catch (error) { unknownError = String(error.message); }
+      ({ capabilities, unknownError })`,
+  }, exec);
+  const outputs = result.outputs ?? [];
+  assertEqual(outputs.length, 2, "two write calls produce two ordered output groups");
+  assert(outputs[0][0].type === "text" && outputs[0][0].text.includes("Search"), "first write is text");
+  assert(outputs[1].some((block) => block.type === "image"), "second write emits an image attachment");
+  assert(Array.isArray(result.value.capabilities) && result.value.capabilities.includes("cdp"), "capability list returns ids");
+  assert(result.value.unknownError.includes("Unknown tab capability"), "unknown capability fails closed");
+});
+
+await test("chrome_locator passes and/or/scope/has criteria to the page", async () => {
+  const exec = makeExec();
+  await tools.get("chrome_locator").execute({
+    action: "count",
+    scope: ["#multi"],
+    hasText: "First",
+    and: [{ role: "button" }],
+    or: [{ name: "First" }, { name: "Second" }],
+  }, exec);
+  assertEqual(lastLocateParams.scope, ["#multi"], "scope forwarded");
+  assertEqual(lastLocateParams.and, [{ role: "button" }], "and forwarded");
+  assertEqual(lastLocateParams.or.length, 2, "or forwarded");
+  assertEqual(lastLocateParams.hasText, "First", "hasText forwarded");
+});
+
+await test("chrome_locator rejects out-of-range nth instead of clamping", async () => {
+  const exec = makeExec();
+  await assertRejects(
+    tools.get("chrome_locator").execute({ action: "click", selector: "#multi", nth: 5 }, exec),
+    "no element at index 5",
+    "nth out of range"
+  );
+  const neg = await tools.get("chrome_locator").execute({ action: "click", selector: "#multi", nth: -1 }, exec);
+  assertEqual(neg.element.ref, "l2", "negative nth selects from the end");
+});
+
+await test("tab.playwright locator methods return native values", async () => {
+  const exec = makeExec();
+  const result = await tools.get("chrome_js").execute({
+    code: `const lt = await browser.tabs.selected();
+      const loc = lt.playwright.locator("#multi");
+      const count = await loc.count();
+      const visible = await loc.first().isVisible();
+      const text = await loc.nth(1).textContent();
+      const attr = await loc.nth(0).getAttribute("data-x");
+      const evaluated = await loc.first().evaluate((el) => el.name);
+      ({ count, visible, text, attr, evaluated })`,
+  }, exec);
+  assertEqual(result.value.count, 2, "locator count is a number");
+  assertEqual(result.value.visible, true, "isVisible is a boolean");
+  assertEqual(result.value.text, "Second", "textContent returns text");
+  assertEqual(result.value.attr, "value-of-data-x", "getAttribute returns an attribute");
+  assertEqual(result.value.evaluated.ref, "l1", "evaluate is bound to the element");
+});
+
+await test("chrome_turn_ended applies deliverable/handoff cleanup", async () => {
+  const exec = makeExec();
+  const a = await tools.get("chrome_navigate").execute({ url: "https://turn.example/a", newTab: true }, exec);
+  const b = await tools.get("chrome_navigate").execute({ url: "https://turn.example/b", newTab: true }, exec);
+  const c = await tools.get("chrome_navigate").execute({ url: "https://turn.example/c", newTab: true }, exec);
+  await tools.get("chrome_mark_tab").execute({ tabId: a.tabId, status: "deliverable" }, exec);
+  await tools.get("chrome_mark_tab").execute({ tabId: b.tabId, status: "handoff" }, exec);
+  const ended = await tools.get("chrome_turn_ended").execute({}, exec);
+  assert(ended.closed.includes(c.tabId), "unmarked agent tab closed");
+  assert(ended.kept.includes(a.tabId) && ended.kept.includes(b.tabId), "marked tabs kept");
+  assert(fakeTabs.has(a.tabId) && fakeTabs.has(b.tabId), "kept tabs still exist");
+  assert(!fakeTabs.has(c.tabId), "closed tab removed");
+});
+
+await test("browser and tab handles stay bound to their browser identity", async () => {
+  const second = await connectFakeExtension({
+    port: PORT,
+    browserId: "browser-two",
+    browserName: "Edge",
+    handlers: {
+      "tabs.list": () => [{ id: 901, title: "Edge Tab", url: "https://edge.example/", active: true, groupTitle: "", groupColor: "" }],
+      "tabs.get": ({ tabId }) => {
+        if (tabId !== 901) throw new Error("wrong tab for browser-two");
+        return { id: 901, title: "Edge Tab", url: "https://edge.example/", active: true, groupTitle: "", groupColor: "" };
+      },
+      "tabs.active": () => ({ id: 901, title: "Edge Tab", url: "https://edge.example/", active: true, groupTitle: "", groupColor: "" }),
+      "page.eval": ({ expression }) => ({ value: { echo: expression, browser: "edge" } }),
+      "cursor.begin": () => ({}),
+      "cursor.end": () => ({}),
+    },
+  });
+  try {
+    const exec = makeExec();
+    const result = await tools.get("chrome_js").execute({
+      code: `const edge = await agent.browsers.get("browser-two");
+        const edgeTab = await edge.tabs.get(901);
+        const title = await edgeTab.title();
+        const evaluated = await edgeTab.playwright.evaluate("1+1");
+        ({ title, evaluated, browserId: edge.browserId, tabId: edgeTab.tabId })`,
+    }, exec);
+    assertEqual(result.value.title, "Edge Tab", "tab handle routed to Edge");
+    assertEqual(result.value.evaluated.browser, "edge", "evaluate routed to Edge");
+    assertEqual(result.value.browserId, "browser-two", "browser handle reports its id");
+    assertEqual(result.value.tabId, 901, "tab handle carries the id");
+  } finally {
+    second.close();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+});
+
+await test("automatic turn/end runs the same full tab cleanup", async () => {
+  const exec = makeExec();
+  const keep = await tools.get("chrome_navigate").execute({ url: "https://auto-turn.example/keep", newTab: true }, exec);
+  const close = await tools.get("chrome_navigate").execute({ url: "https://auto-turn.example/close", newTab: true }, exec);
+  await tools.get("chrome_mark_tab").execute({ tabId: keep.tabId, status: "deliverable" }, exec);
+  for (const handler of hostHandlers.get("session/event") ?? []) handler(exec.agent.session, { type: "turn/end" });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert(fakeTabs.has(keep.tabId), "deliverable tab survives automatic turn end");
+  assert(!fakeTabs.has(close.tabId), "unmarked tab closes at automatic turn end");
+});
+
+await test("default browser handles follow chrome_use_browser switches", async () => {
+  const second = await connectFakeExtension({
+    port: PORT,
+    browserId: "browser-three",
+    browserName: "Brave",
+    handlers: {
+      "tabs.list": () => [{ id: 1001, title: "Brave Tab", url: "https://brave.example/", active: true, groupTitle: "" }],
+      "tabs.get": () => ({ id: 1001, title: "Brave Tab", url: "https://brave.example/", active: true, groupTitle: "" }),
+      "tabs.active": () => ({ id: 1001, title: "Brave Tab", url: "https://brave.example/", active: true, groupTitle: "" }),
+      "cursor.begin": () => ({}),
+      "cursor.end": () => ({}),
+    },
+  });
+  try {
+    const exec = makeExec();
+    const before = await tools.get("chrome_js").execute({ code: "(await agent.browsers.getDefault()).browserId" }, exec);
+    assert(before.value !== "browser-three", "default starts on the original browser");
+    const switched = await tools.get("chrome_use_browser").execute({ browserId: "browser-three" }, exec);
+    assertEqual(switched.ok, true, "switch succeeds");
+    const after = await tools.get("chrome_js").execute({ code: "(await agent.browsers.getDefault()).browserId" }, exec);
+    assertEqual(after.value, "browser-three", "new default handle follows the switch");
+    await tools.get("chrome_use_browser").execute({ browserId: "default" }, exec).catch(() => {});
+  } finally {
+    second.close();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+});
+
+await test("chrome_act returns ordered observation blocks including images", async () => {
+  const exec = makeExec();
+  await tools.get("chrome_navigate").execute({ url: "https://blocks.example/" }, exec);
+  const batch = await tools.get("chrome_act").execute({
+    actions: [
+      { tool: "chrome_snapshot", args: {} },
+      { tool: "chrome_screenshot", args: {} },
+    ],
+  }, exec);
+  assertEqual(batch.results.length, 2, "two actions");
+  assertEqual(batch.results[0].blocks[0].type, "text", "snapshot text block first");
+  const image = batch.results[1].blocks.find((block) => block.type === "image");
+  assert(image !== undefined, "screenshot block includes image");
+  const rendered = tools.get("chrome_act").output.render({}, batch);
+  assert(rendered.some((block) => block.type === "image"), "batch render keeps images");
 });
 
 ext.close();

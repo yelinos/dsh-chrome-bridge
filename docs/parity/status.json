@@ -1,0 +1,70 @@
+{
+  "CAP-MGMT": {
+    "status": "待官方对照",
+    "evidence": "management 代理返回原生值；tab/bookmark/history 测试待补"
+  },
+  "CAP-VIEWPORT": {
+    "status": "待官方对照",
+    "evidence": "chrome_viewport 已注册"
+  },
+  "CAP-VISIBILITY": {
+    "status": "待官方对照",
+    "evidence": "chrome_visibility 已注册"
+  },
+  "CAP-BOT": {
+    "status": "待官方对照",
+    "evidence": "chrome_bot_detection 已注册"
+  },
+  "CAP-AUTH": {
+    "status": "待依赖",
+    "evidence": "原生 OpenAI 账户授权不可用；浏览器内可见控件 + 用户接管等价路径已实现"
+  },
+  "CAP-CDP": {
+    "status": "待官方对照",
+    "evidence": "chrome_cdp 已注册"
+  },
+  "CAP-ASSETS": {
+    "status": "待官方对照",
+    "evidence": "chrome_page_assets 已注册"
+  },
+  "CAP-SIWC": {
+    "status": "待官方对照",
+    "evidence": "chrome_siwc 已注册"
+  },
+  "CAP-WEBMCP": {
+    "status": "待官方对照",
+    "evidence": "chrome_webmcp 已注册"
+  },
+  "INT-SIDEBAR": {
+    "status": "实现中",
+    "evidence": "侧栏已显示页面上下文、选区、标签列表与 tab mention；聊天/流式回复待宿主适配"
+  },
+  "INT-CONTEXT-MENU": {
+    "status": "待官方对照",
+    "evidence": "chrome_context_menu 已注册"
+  },
+  "INT-NOTIFICATIONS": {
+    "status": "待官方对照",
+    "evidence": "chrome_notify 已注册"
+  },
+  "INT-TAB-MENTIONS": {
+    "status": "待官方对照",
+    "evidence": "chrome_tab_mentions + claim 时 URL/title 校验已实现"
+  },
+  "INT-PERMISSIONS": {
+    "status": "待官方对照",
+    "evidence": "扩展 16 项权限；域名审批在 Host 侧"
+  },
+  "INT-CURSOR": {
+    "status": "待官方对照",
+    "evidence": "G01：官方弹簧/曲线参数已移植；E2E 路径与落点验证见 docs/parity/EXECUTION_STATUS.md"
+  },
+  "INT-HOST-HOOKS": {
+    "status": "待官方对照",
+    "evidence": "G11：turn/end 完整清理已实现；E2E 验证 deliverable/handoff"
+  },
+  "INT-INSTALL": {
+    "status": "待官方对照",
+    "evidence": "chrome_browser_diagnostics / chrome_browser_info 已注册"
+  }
+}

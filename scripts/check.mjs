@@ -17,8 +17,12 @@ const jsFiles = [
   "service.js",
   "bridge.js",
   "client.js",
+  "repl.js",
+  "browsers.js",
   "extension/sw.js",
+  "extension/cursor.js",
   "extension/popup.js",
+  "extension/sidepanel.js",
   ...(await readdir(join(root, "test"))).filter((f) => f.endsWith(".mjs")).map((f) => `test/${f}`),
   ...(await readdir(join(root, "scripts"))).filter((f) => f.endsWith(".mjs")).map((f) => `scripts/${f}`),
 ];

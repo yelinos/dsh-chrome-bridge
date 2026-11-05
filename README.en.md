@@ -31,10 +31,10 @@ for your approval the first time it touches a new domain.
 | Per-session tab groups | Each agent session gets its own `DSH · <session>` group, so concurrent sessions never collide |
 | Automatic tab recycling | Reuses the session's current tab by default; keeps at most `maxSessionTabs` tabs per session (LRU eviction), closes idle tabs and everything on session end |
 | Group colors and names | Each session gets a stable palette color; the group defaults to the first page's title and the agent can rename it to a short purpose with `chrome_group` |
-| Compact snapshots (token-saving) | `chrome_snapshot` returns interactive elements from the accessibility tree with `e1` refs — an order of magnitude smaller than full page text |
+| AX snapshots | `chrome_snapshot` returns a hierarchical accessibility tree with visibility and stable `e1` refs; output is an incremental diff by default and `tab.ax.write()` emits state/screenshots to the model |
 | Batched actions (round-trip-saving) | `chrome_act` runs several actions (click/type/key/navigate) in one tool call instead of one LLM round trip per step |
-| Virtual cursor | Every mouse move/click/scroll shows an in-page pointer and click ripple so you can see exactly where the model acts |
-| Scrolling | `chrome_scroll` supports wheel deltas or scrolling an element ref into view |
+| Virtual cursor | Uses the official cursor asset in an isolated shadow root, visible during reading and hidden at turn end |
+| Scrolling | AX page scrolling uses target or viewport dimensions in four directions; pixel scrolling uses native Chrome gestures |
 | Inline screenshots | PNG bytes are admitted through the attachment pipeline and returned as a model-visible image block; falls back to a workspace file |
 | Sidebar panel | Right sidebar "+" menu → Chrome Bridge: live status, install guide, domain lists |
 | Safety rails | `blockedDomains` always wins; only agent tab groups can be closed |
@@ -93,28 +93,59 @@ Ask the agent to call `chrome_status`; it should report:
 DSH Chrome Bridge connected:
 - listening: true
 - endpoint: ws://127.0.0.1:8765
-- extension: DSH Chrome Bridge 0.0.4
+- extension: DSH Chrome Bridge 0.1.1
 - extension directory: /path/to/dsh-chrome-bridge/extension/
 ```
+
+## Parity evidence
+
+See `docs/parity/EXECUTION_STATUS.md`, `docs/parity/capability-ledger.md` and
+`docs/parity/baseline.md` for the official capability inventory and current
+verification state.
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `chrome_status` | Bridge state, extension info, install directory, domain lists |
+| `chrome_status` | Bridge state, extension info, install directory, domain lists, connected browsers |
+| `chrome_browser_diagnostics` | Discover installed Chromium browsers/profiles, running state, native host; launch with approval |
+| `chrome_use_browser` | Switch the connected browser/profile used by subsequent commands |
 | `chrome_tabs` | List tabs (agent DSH groups by default; `all: true` for everything) |
+| `chrome_active_tab` | Return the currently selected/active tab |
 | `chrome_navigate` | Navigate: **reuses the session's current tab by default**; `newTab: true` opens another; domain gate |
 | `chrome_read_page` | Read URL, title, and visible text (truncated) |
+| `chrome_read_urls` | Load multiple URLs in temporary background tabs and extract text/HTML |
 | `chrome_eval` | Evaluate JavaScript and return a JSON value |
 | `chrome_click` | Real mouse click by CSS selector or x/y; double click, right button |
 | `chrome_type` | Real keyboard input; optional selector focus and clear |
 | `chrome_key` | Press Enter/Tab/Escape/arrows/etc. with modifiers |
-| `chrome_screenshot` | Return a PNG as an inline attachment (file fallback) |
+| `chrome_screenshot` | Return a PNG/JPEG inline attachment (file fallback), with full-page and clip support |
+| `chrome_element_info` / `chrome_element_screenshot` | Identify elements/selector candidates at a coordinate, or crop an element screenshot |
 | `chrome_group` | Name this session's tab group (≤24 chars) and change its color |
 | `chrome_snapshot` | Compact accessibility-tree snapshot with element refs |
 | `chrome_act` | Run several actions in one tool call |
-| `chrome_scroll` | Wheel-scroll or scroll an element into view |
+| `chrome_scroll` | Scroll at a ref/point using direction/pages or pixel deltas |
 | `chrome_move` | Move the virtual cursor to an element or point without clicking |
+| `chrome_open_tabs` / `chrome_claim_tab` / `chrome_release_tab` | List, claim, and release existing user tabs |
+| `chrome_mark_tab` | Mark deliverable / handoff tabs so cleanup keeps them |
+| `chrome_find` | Find elements by CSS/role/name/text/label/placeholder/testId and return l-refs |
+| `chrome_locator` | Playwright-style locator: count/click/fill/type/press/select/check/getAttribute/waitFor |
+| `chrome_set_value` / `chrome_select_option` | Set form values and select native options by ref |
+| `chrome_upload` / `chrome_download` | File upload (file input or chooser) and downloads |
+| `chrome_clipboard` / `chrome_dialog` | Page clipboard read/write and JS dialog handling |
+| `chrome_logs` | Read captured console/browser logs |
+| `chrome_page_assets` / `chrome_export` | Inventory/bundle page assets and export text/HTML/PDF |
+| `chrome_export_gsuite` / `chrome_export_youtube_transcript` | Google Workspace export and YouTube transcript export |
+| `chrome_management` / `chrome_history` / `chrome_bookmarks` | Browser organization APIs for tabs/groups/windows/history/bookmarks |
+| `chrome_viewport` / `chrome_visibility` / `chrome_cdp` / `chrome_network` | Viewport override, browser visibility, raw CDP, request headers/URL blocking |
+| `chrome_user_takeover` | Pause automation for user login/CAPTCHA/2FA takeover |
+| `chrome_js` | Persistent JavaScript browser session with `agent.browsers` / `browser.tabs` / `tab.playwright` / `tab.ax` / `tab.cua` / `tab.dom_cua` / `tab.clipboard` / `tab.dev` / `tab.content` / `tab.capabilities` |
+| `chrome_locator` | Playwright-style locator: count/click/fill/type/press/select/check/getAttribute/waitFor |
+| `chrome_webmcp` | List and invoke page-defined WebMCP tools |
+| `chrome_export_gsuite` / `chrome_export_youtube_transcript` | Google Workspace export and YouTube transcript export |
+| `chrome_browser_auth` / `chrome_siwc` / `chrome_bot_detection` | Secure sign-in handoff, Sign in with ChatGPT detection, bot-blocker reporting |
+| `chrome_browser_info` / `chrome_notify` / `chrome_context_menu` / `chrome_side_panel` | Browser diagnostics, notifications, context menu, extension side panel |
+| `chrome_favicon` / `chrome_tab_mentions` / `chrome_turn_ended` / `chrome_audit_trail` | Control badge, tab mentions, turn end, change audit |
 | `chrome_close_tab` | Close a tab inside an agent group only |
 
 ## Configuration
@@ -161,6 +192,8 @@ Override any field by id in the profile's `cordis.patch.yml`, or simply pick
 
 ```bash
 npm run check      # syntax / JSON / manifest / version parity
+npm run parity:ledger   # regenerate official capability ledger
+npm run parity:baseline # archive git/version/fingerprints
 npm run test:unit  # protocol, tools, service lifecycle, client registration
 npm run test:e2e   # real Chrome for Testing end-to-end (needs .tools/chrome-linux64/chrome)
 ```

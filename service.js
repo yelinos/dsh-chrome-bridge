@@ -138,8 +138,13 @@ export class ChromeBridgeService extends TypertRemoteService {
   }
 
   /** Issue one command to the connected extension (see createBridgeServer). */
-  command(cmd, params, signal) {
-    return this.server.command(cmd, params, signal);
+  command(cmd, params, signal, browserId) {
+    return this.server.command(cmd, params, signal, browserId);
+  }
+
+  /** Switch the browser used by subsequent commands. */
+  setActiveBrowser(browserId) {
+    return this.server.setActiveBrowser(browserId);
   }
 }
 

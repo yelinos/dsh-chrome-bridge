@@ -11,8 +11,10 @@
  *   host → extension   {id, cmd, ...params}                (command)
  *   extension → host   {id, ok:true, result} | {id, ok:false, error}
  *
- * Exactly one extension connection is active at a time; a newer connection
- * replaces an older one. All pending commands fail when the connection drops.
+ * Multiple extension connections are kept by `browserId` (one per browser or
+ * profile). Commands go to the active browser; `setActiveBrowser()` switches
+ * it. A reconnect for the same browser replaces that browser's old socket.
+ * Pending commands fail only for the browser whose connection drops.
  *
  * @module dsh-chrome-bridge/bridge
  */
@@ -56,16 +58,18 @@ export function createBridgeServer(options = {}) {
 
   /** @type {import("ws").WebSocketServer | null} */
   let wss = null;
-  /** @type {import("ws").WebSocket | null} */
-  let socket = null;
-  /** @type {{name: string, version: string, userAgent: string} | null} */
+  /** @type {Map<string, {socket: import("ws").WebSocket, info: {id: string, name: string, version: string, userAgent: string, browserName: string}}>} */
+  const connections = new Map();
+  /** Currently selected browser id. */
+  let activeBrowserId = null;
+  /** @type {{id: string, name: string, version: string, userAgent: string, browserName: string} | null} */
   let extension = null;
   /** @type {Error | null} */
   let startError = null;
   let listening = false;
   let disposed = false;
   let nextCommandId = 1;
-  /** @type {Map<number, {resolve: (v: any) => void, reject: (e: Error) => void, timer: any}>} */
+  /** @type {Map<number, {resolve: (v: any) => void, reject: (e: Error) => void, timer: any, browserId: string}>} */
   const pending = new Map();
   let keepaliveTimer = null;
 
@@ -73,12 +77,21 @@ export function createBridgeServer(options = {}) {
     if (sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify(value));
   }
 
-  function failAllPending(reason) {
-    for (const entry of pending.values()) {
+  function activeConnection() {
+    return activeBrowserId === null ? null : connections.get(activeBrowserId) ?? null;
+  }
+
+  function refreshActiveExtension() {
+    extension = activeConnection()?.info ?? null;
+  }
+
+  function failAllPending(reason, browserId = null) {
+    for (const [id, entry] of pending) {
+      if (browserId !== null && entry.browserId !== browserId) continue;
       clearTimeout(entry.timer);
       entry.reject(new Error(`DSH Chrome Bridge: ${reason}`));
+      pending.delete(id);
     }
-    pending.clear();
   }
 
   function handleSocketMessage(sock, raw) {
@@ -97,18 +110,26 @@ export function createBridgeServer(options = {}) {
         sock.close(4003, "unauthorized");
         return;
       }
-      if (socket !== null && socket !== sock && socket.readyState === WebSocket.OPEN) {
-        socket.close(4000, "replaced by a newer connection");
+      const browserId = String(message.browserId ?? "default");
+      const previous = connections.get(browserId);
+      if (previous !== undefined && previous.socket !== sock && previous.socket.readyState === WebSocket.OPEN) {
+        previous.socket.close(4000, "replaced by a newer connection");
       }
-      socket = sock;
-      extension = {
+      const info = {
+        id: browserId,
         name: String(message.name ?? "unknown"),
         version: String(message.version ?? ""),
         userAgent: String(message.userAgent ?? ""),
+        browserName: String(message.browserName ?? "Chromium"),
       };
-      failAllPending("extension reconnected; pending commands were dropped");
+      connections.set(browserId, { socket: sock, info });
+      if (activeBrowserId === null || activeBrowserId === browserId || !connections.has(activeBrowserId)) {
+        activeBrowserId = browserId;
+        refreshActiveExtension();
+      }
+      failAllPending("extension reconnected; pending commands were dropped", browserId);
       sendJson(sock, { type: "welcome", ok: true, protocol: PROTOCOL_VERSION });
-      log(`extension connected: ${extension.name} ${extension.version}`);
+      log(`extension connected: ${info.browserName} ${info.name} ${info.version} (${browserId})`);
       onStateChange();
       return;
     }
@@ -144,8 +165,8 @@ export function createBridgeServer(options = {}) {
       wss = new WebSocketServer({ host, port }, () => {
         listening = true;
         keepaliveTimer = setInterval(() => {
-          if (socket !== null && socket.readyState === WebSocket.OPEN) {
-            sendJson(socket, { type: "ping" });
+          for (const connection of connections.values()) {
+            if (connection.socket.readyState === WebSocket.OPEN) sendJson(connection.socket, { type: "ping" });
           }
         }, keepaliveIntervalMs);
         log(`listening on ws://${host}:${port}`);
@@ -160,12 +181,17 @@ export function createBridgeServer(options = {}) {
       wss.on("connection", (sock) => {
         sock.on("message", (data) => handleSocketMessage(sock, data));
         sock.on("close", () => {
-          if (socket === sock) {
-            socket = null;
-            extension = null;
-            failAllPending("extension disconnected");
-            log("extension disconnected");
+          for (const [browserId, connection] of connections) {
+            if (connection.socket !== sock) continue;
+            connections.delete(browserId);
+            failAllPending("extension disconnected", browserId);
+            if (activeBrowserId === browserId) {
+              activeBrowserId = connections.keys().next().value ?? null;
+              refreshActiveExtension();
+            }
+            log(`extension disconnected: ${browserId}`);
             onStateChange();
+            break;
           }
         });
         sock.on("error", () => {});
@@ -181,10 +207,12 @@ export function createBridgeServer(options = {}) {
    * @param {object} [params] - Command parameters.
    * @param {AbortSignal} [signal] - Aborts the wait (the extension may still
    *   complete the work; only the local wait is abandoned).
+   * @param {string} [browserId] - Route to a specific connected browser.
    * @returns {Promise<any>} The extension's result value.
    */
-  function command(cmd, params = {}, signal) {
-    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+  function command(cmd, params = {}, signal, browserId) {
+    const connection = browserId == null ? activeConnection() : connections.get(browserId) ?? null;
+    if (connection === null || connection.socket.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error(NOT_CONNECTED_MESSAGE));
     }
     const id = nextCommandId++;
@@ -214,8 +242,13 @@ export function createBridgeServer(options = {}) {
         }
         signal.addEventListener("abort", abortListener, { once: true });
       }
-      pending.set(id, { resolve: (v) => settle(resolve, v), reject: (e) => settle(reject, e), timer });
-      sendJson(socket, { id, cmd, ...params });
+      pending.set(id, {
+        resolve: (v) => settle(resolve, v),
+        reject: (e) => settle(reject, e),
+        timer,
+        browserId: connection.info.id,
+      });
+      sendJson(connection.socket, { id, cmd, ...params });
     });
   }
 
@@ -225,21 +258,33 @@ export function createBridgeServer(options = {}) {
       listening,
       host,
       port,
-      connected: socket !== null && socket.readyState === WebSocket.OPEN,
+      connected: connections.size > 0,
       extension,
+      activeBrowserId,
+      browsers: [...connections.values()].map((connection) => ({ ...connection.info, active: connection.info.id === activeBrowserId })),
       startError: startError === null ? null : String(startError.message ?? startError),
       pendingCommands: pending.size,
     };
   }
 
-  /** Stop the server, drop the extension, and fail every pending command. */
+  /** Switch the browser used by subsequent commands. */
+  function setActiveBrowser(browserId) {
+    if (!connections.has(browserId)) return false;
+    activeBrowserId = browserId;
+    refreshActiveExtension();
+    onStateChange();
+    return true;
+  }
+
+  /** Stop the server, drop extensions, and fail every pending command. */
   function dispose() {
     disposed = true;
     listening = false;
     if (keepaliveTimer !== null) clearInterval(keepaliveTimer);
     keepaliveTimer = null;
     failAllPending("bridge disposed");
-    socket = null;
+    connections.clear();
+    activeBrowserId = null;
     extension = null;
     if (wss !== null) {
       for (const client of wss.clients) {
@@ -258,6 +303,7 @@ export function createBridgeServer(options = {}) {
     listen,
     command,
     status,
+    setActiveBrowser,
     dispose,
     /** Await nothing; the handle exists so tests and the service share one shape. */
     get protocolVersion() {

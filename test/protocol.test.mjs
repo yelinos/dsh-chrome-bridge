@@ -123,6 +123,38 @@ await test("a newer connection replaces the older one", async () => {
   server.dispose();
 });
 
+await test("multiple browsers coexist and can be switched", async () => {
+  const server = createBridgeServer({ port: 18778, commandTimeoutMs: 500 });
+  await server.listen();
+  const chrome = await connectFakeExtension({
+    port: 18778,
+    browserId: "chrome-profile",
+    browserName: "Chrome",
+    handlers: { "ext.ping": () => ({ version: "chrome" }) },
+  });
+  const edge = await connectFakeExtension({
+    port: 18778,
+    browserId: "edge-profile",
+    browserName: "Edge",
+    handlers: { "ext.ping": () => ({ version: "edge" }) },
+  });
+  await sleep(100);
+  const status = server.status();
+  assertEqual(status.browsers.length, 2, "two browsers registered");
+  assertEqual((await server.command("ext.ping", {}, undefined, "edge-profile")).version, "edge", "explicit routing reaches Edge");
+  assertEqual(server.status().activeBrowserId, "chrome-profile", "routing preserves the selected browser");
+
+  assert(status.browsers.some((browser) => browser.browserName === "Edge"), "Edge listed");
+  assert(server.setActiveBrowser("edge-profile"), "switch to Edge");
+  assertEqual((await server.command("ext.ping")).version, "edge", "commands route to Edge");
+  edge.close();
+  await sleep(150);
+  assertEqual(server.status().activeBrowserId, "chrome-profile", "falls back to remaining browser");
+  assertEqual((await server.command("ext.ping")).version, "chrome", "commands route back to Chrome");
+  chrome.close();
+  server.dispose();
+});
+
 await test("protocol version exported", async () => {
   assertEqual(PROTOCOL_VERSION, 1, "protocol version");
 });
